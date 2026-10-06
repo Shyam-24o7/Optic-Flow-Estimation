@@ -1,7 +1,7 @@
 # KV260 Forward Collision Warning: Design
 
 - **Date:** 2026-10-06
-- **Status:** design approved in discussion, awaiting spec review
+- **Status:** approved 2026-10-06; revised the same day with findings from prototyping the algorithm core (see section 12)
 - **Diagrams:** https://claude.ai/artifact/LmHw3Nxg4rDhFAWXeXXZNY (high- and low-level architecture, dataflow, timing, engine, warning FSM)
 - **Builds on:** `shadowPunch/Optic-Flow-Estimation` after PR #1 (reconstructed pipeline, Vitis AI results). This clone predates that PR.
 
@@ -73,9 +73,9 @@ Reads the decoded frame from DDR. Writes:
 ### 4.5 Ego-rotation (PS)
 1. **Sample** LK flow on a 32×24 grid (every 16 px, about 768 points). Skip points inside the previous frame's tracked boxes (enlarged by 10%) and inside the hood mask.
 2. **Fit** with `cv::findEssentialMat` (RANSAC, 1 px threshold, 0.999 confidence) followed by `cv::recoverPose`, giving R and the translation direction t̂. FOE = K·t̂ when t̂ has a positive z component.
-3. **Stationary case:** if the median flow left after removing rotation is below 0.5 px, set `stationary` and estimate rotation from a homography H = K·R·K⁻¹ instead. No FOE.
-4. **Low confidence:** if the inlier ratio is below 0.5, hold the previous estimate and mark it low-confidence.
-5. **Temporal filter:** a light filter on ω and the FOE rejects jumps beyond about 1° per frame.
+3. **Stationary case (model selection):** also fit a homography (RANSAC). If K⁻¹·H·K is within 1% of a rotation and the homography explains at least 90% as many points as the essential matrix, the camera only rotated: set `stationary`, take R from the homography, report no FOE. (The essential matrix is degenerate without translation.)
+4. **Low confidence:** confidence is the essential matrix's RANSAC inlier share. (`recoverPose`'s own mask also drops points beyond 50 baselines, i.e. far background, so it is not used.) Below 0.5, hold the previous estimate and mark it low-confidence.
+5. **Temporal filter:** reject a new R whose angle differs from the last valid one by more than 1° per frame; smooth the FOE with an EMA (weight 0.5). FOE = K·t̂ / t̂_z, valid when |t̂_z| ≥ 0.5.
 6. **Output:** `EgoMotion{R, ω, FOE, inlier_ratio, stationary, valid}`.
 
 Only rotation is removed. Forward translation is the collision signal and is kept.
@@ -92,19 +92,21 @@ Only rotation is removed. Forward translation is the collision signal and is kep
    - **Result:** τ = kΔt / (s* − 1). Confidence comes from the NCC peak's curvature and height.
 3. **Horn direct TTC:**
    - **Model:** A·Ex + B·Ey + C·G + Et = 0 with G = x·Ex + y·Ey. x, y are measured from the principal point; moving the origin only reparameterizes A and B.
-   - **Solve:** the 3×3 normal equations from 9 per-box sums give C, and η_H = C/Δt.
+   - **Integer definition (the HLS engine must match it bit for bit):** S = I_{t−1} + I_t; Ex, Ey = 3×3 Sobel of S on interior pixels (12 b); Et = I_t − I_{t−1} (9 b). Sobel of the frame sum is 16× the mean-intensity derivative, so the fitted C′ gives C = 16·C′.
+   - **Solve:** 10 per-box sums (the 9 normal-equation terms plus ΣEt², which gives the residual and the variance) → C, and η_H = C/Δt.
    - **Pyramid level:** each box uses the level where its expected motion stays under about 1 px.
    - **Masking and gates:** pixels with |∇E| ≤ threshold are skipped. The estimate is dropped when the system is ill-conditioned or the residual is high.
 4. **LK divergence:**
    - **Fit:** an affine flow model u = a₀ + a₁x + a₂y, v = b₀ + b₁x + b₂y over the box, using the 11 flow-moment sums. div = a₁ + b₂.
-   - **De-rotation:** subtract the rotation's divergence at the box centre, 3(y_c·ωₓ − x_c·ω_y), in normalized coordinates per frame.
+   - **De-rotation:** subtract the rotation's divergence at the box centre, computed exactly from H = K·R·K⁻¹. For small rotations it equals 3(x_n·ω_y − y_n·ω_x) in normalized coordinates, with ω the rotation vector of R (prev → curr). The earlier draft used the opposite, camera-rotation sign convention.
    - **Result:** η_D = div / (2kΔt), with k = 1 for LK.
-   - **Outlier rejection:** a refit in P1 (C++). In P2 the engine is single-pass, so pixels whose flow deviates from the previous frame's affine fit are masked out, or the refit is done on the ARM cores from a subsample if DSP budget is short.
+   - **Outlier rejection:** RANSAC on the affine model (64 hypotheses on a stride-2 subsample, 1 px inlier threshold), then least squares on the inliers. An iterated least-squares refit was tested and fails: background pixels drag the first fit before any residual test can reject them. In P2 the engine is single-pass, so it masks pixels that deviate from the previous frame's fit, or the ARM cores run the RANSAC on a subsample if the DSP budget is short.
 
 ### 4.7 Fusion (PS)
 - **Filter:** a per-track EKF on η.
 - **Motion model:** constant closing speed, η′ = η / (1 − ηΔt). Process noise covers braking and acceleration.
-- **Measurement updates:** each available η_i with its variance. The variance is the method's confidence scaled by a per-method factor calibrated in P1 on TSTTC and EvTTC.
+- **Measurement updates:** each available η_i with its variance. The variance is the method's own estimate times a per-method factor calibrated in P1 on EvTTC, with a floor for model error: σ ≥ rel·|η| + 0.02 s⁻¹, rel = 0.05 (scale), 0.15 (Horn), 0.30 (divergence), 0 (looming). Without the floor, Horn's tiny least-squares variance let its +10–30% bias (seen on synthetic scenes) dominate the fused TTC.
+- **Re-initialisation:** after 5 consecutive frames whose measurements are all gated out, the filter restarts from the current measurements.
 - **Gate:** a Mahalanobis test rejects outlier measurements.
 - **Output:** `TtcEstimate`, with τ = 1/η when η > 0.05 s⁻¹ (otherwise "not approaching"), plus σ_τ, the four η values and which methods contributed.
 
@@ -114,24 +116,24 @@ Only rotation is removed. Forward translation is the collision signal and is kep
   - flow u, v (AXI-Stream);
   - box table (AXI-Lite): up to 16 boxes with their pyramid levels.
 - **Pipeline at II = 1:**
-  1. Line buffers + 3×3 Sobel → Ex, Ey (11 b); Et = I_t − I_{t−1} (9 b).
+  1. Line buffers; S = I_{t−1} + I_t; 3×3 Sobel of S → Ex, Ey (12 b); Et = I_t − I_{t−1} (9 b).
   2. Pixel counter → x, y relative to the principal point (10 b).
-  3. G = x·Ex + y·Ey (20 b).
-  4. Shared product unit forms 21 terms per pixel, using about 18 multipliers:
-     - Horn (9): Ex², ExEy, ExG, Ey², EyG, G², ExEt, EyEt, GEt;
+  3. G = x·Ex + y·Ey (21 b).
+  4. Shared product unit forms 22 terms per pixel, using about 19 multipliers:
+     - Horn (10): Ex², ExEy, ExG, Ey², EyG, G², ExEt, EyEt, GEt, Et²;
      - flow moments (11): x, y, x², xy, y², u, v, xu, yu, xv, yv;
      - pixel count (1).
   5. Box mask unit: for each box, the pixel is inside it, |∇E| exceeds the threshold (Horn terms) and the flow is valid (moment terms).
-  6. Accumulator bank: 16 boxes × 21 int64 adders. Products are shared, so each extra box costs adders only.
-- **Output:** 16 × 21 × 8 B = 2,688 B per frame to DDR over m_axi. The ARM cores solve the 3×3 systems.
-- **Precision:** the largest per-pixel product is G², at most 2.1×10¹¹ (38 b). A box has at most 196,608 pixels (18 b), so sums reach 56 b; int64 is safe.
-- **Resources (estimate):** about 18–30 DSPs, about 20K LUTs for the accumulators. If P0 shows the fabric is tight: 8 boxes, or 48-bit partial sums.
+  6. Accumulator bank: 16 boxes × 22 int64 adders. Products are shared, so each extra box costs adders only.
+- **Output:** 16 × 22 × 8 B = 2,816 B per frame to DDR over m_axi. The ARM cores solve the 3×3 systems.
+- **Precision:** |Ex|, |Ey| ≤ 4·510 = 2040; |G| ≤ 448·2040 = 913,920; the largest per-pixel product is G² ≤ 8.4×10¹¹ (40 b). A box has at most 196,608 pixels (18 b), so sums reach 58 b; int64 is safe.
+- **Resources (estimate):** about 19–32 DSPs, about 21K LUTs for the accumulators. If P0 shows the fabric is tight: 8 boxes, or 48-bit partial sums.
 - **Reuses** upstream's `hls/image_derivative` Sobel after fixing its row/column offset (it emits the window centred on (x−1, y−2)).
 - **Before P2:** a bit-exact fixed-point C++ twin runs in T3 and is the golden reference.
 
 ### 4.9 Course check (PS)
 - **Heading:** the FOE x-coordinate x_F (smoothed). When the car is stationary or the FOE is invalid, use the principal point.
-- **Lateral offset in object widths:** r = (x_c − x_F) / w = X / W_obj, which is independent of distance. ṙ comes from a least-squares line over the last 0.5 s.
+- **Lateral offset in object widths:** r = (x_c − x_F) / w = X / W_obj, which is independent of distance. ṙ comes from a least-squares line over the last 0.5 s, fitted only when that history spans real time (live cameras repeat timestamps).
 - **On course** if |r + ṙ·τ| < ½(1 + W_ego / W_obj).
   - W_ego = 1.8 m + 0.3 m margin.
   - W_obj priors: car 1.8 m, truck/bus 2.5 m, motorcycle 0.8 m, bicycle 0.6 m, person 0.5 m.
@@ -148,8 +150,8 @@ Every raise also requires the track to be on course and at least 2 of the 4 TTC 
 |---|---|---|
 | NONE | WARNING | τ ≤ 2.7 s for 3 consecutive frames |
 | NONE or WARNING | CRITICAL | τ + σ_τ ≤ 1.5 s (immediate) |
-| WARNING | NONE | τ > 3.2 s for 10 frames, or track lost |
-| CRITICAL | WARNING | τ > 2.0 s for 10 frames |
+| WARNING | NONE | τ > 3.2 s or off course, for 10 frames; or track lost |
+| CRITICAL | WARNING | τ > 2.0 s or off course, for 10 frames |
 | any | NONE | track lost |
 
 **Basis:** NHTSA's FCW confirmation test requires a warning by TTC 2.1 s (stopped lead vehicle), 2.4 s (decelerating) and 2.0 s (slower lead vehicle). 2.7 s = 2.4 s + ~0.1 s pipeline delay + 0.1 s persistence + 0.1 s margin.
@@ -187,7 +189,7 @@ The 33.3 ms frame period must hold for every lane; no stage is serialized across
 | `Track` | id, box, class, state [cx, cy, σ, aspect, ċx, ċy, σ̇], covariance, age, lost |
 | `FlowField` | u, v (16-bit fixed point), width, height, scale, frame pair |
 | `EgoMotion` | R, ω, FOE, inlier_ratio, stationary, valid |
-| `BoxSums` | horn[9], flow[11], n, pyramid level |
+| `BoxSums` | horn[10], flow[11], n, pyramid level |
 | `TtcEstimate` | track id, τ, σ_τ, η_L, η_S, η_H, η_D, contributing-method mask |
 | `Warning` | track id, level, τ, σ_τ, r_c |
 
@@ -196,9 +198,11 @@ Stages depend only on these structs. Swapping the Horn engine's C++ twin for HLS
 ## 7. Repository layout
 
 ```text
-collision_avoidance/   Python reference (PC). Rewrites: ttc.py (4 methods + fusion),
-                       tracking.py (log-scale state), ego_motion.py (essential matrix,
-                       replaces GENEVO); new collision.py (course check + FSM)
+collision_avoidance/fcw/  Python reference (PC), a new package: synth, tracker,
+                       ego_rotation, looming, scale_search, horn, divergence, fusion,
+                       collision, pipeline, render, metrics, kitti, and the CLI
+                       (python -m collision_avoidance.fcw). Legacy ttc.py, tracking.py and
+                       ego_motion.py stay untouched because ttc_esn imports them.
 host/                  C++17 on-board app (CMake, Kria Ubuntu)
   include/types.hpp
   src/                 capture, accel (VART, XRT), tracker, ego_rotation,
@@ -210,8 +214,8 @@ hls/image_derivative/  existing Sobel; fix offset, reuse in ttc_engine
 hls/ports/             retired drafts, moved to legacy/
 platform/              overlay: DPU B4096 + Vitis LK + ttc_engine → .xclbin
 deploy/vitis_ai/       existing YOLOv9t-Hardswish flow; P3 adds PWC-DC-Net QAT
-eval/                  loaders + metrics: TSTTC, EvTTC, KITTI raw (OXTS), Nexar clips
-tools/synth_scenes.py  textured-plane sequences with exact τ, lateral motion, rotation
+eval/                  scripts: EvTTC TTC + lead time + variance calibration, KITTI raw
+                       yaw RMS, false alarms on normal-driving clips (TSTTC once obtained)
 ```
 
 The on-board app is C++ because T3 needs real threads, and Python's global interpreter lock would serialize it. Python remains the reference implementation and the evaluation harness.
@@ -263,7 +267,20 @@ Ablations remove one TTC method at a time to show each method's contribution.
 | Wrong class width prior | corridor slightly off | affects the threshold only, not r |
 | QAT misses 0.3 px | no learned flow | LK stays; P4 |
 
-## 12. References
+## 12. Prototype findings (2026-10-06)
+
+The algorithm core was prototyped and tested (62 tests, Python 3.11 and 3.14) before the implementation plan was written. Changes folded into the sections above:
+
+- Horn needs ΣEt² for its residual gate and variance: 10 Horn terms, 22 engine sums, 2,816 B per frame.
+- Horn's gradients come from the frame sum (12 b), with a fixed gain of 16 removed in software.
+- Ego-rotation: homography-vs-essential model selection; RANSAC inlier share as confidence.
+- Divergence: RANSAC refit; de-rotation sign convention fixed to R prev → curr.
+- Fusion: per-method model-error floors; re-initialisation after repeated gating.
+- Warning FSM: leaving the path clears a warning the same way a long TTC does.
+- Pipeline: a repeated or out-of-order timestamp falls back to the nominal frame period.
+- On a synthetic head-on approach the pipeline warns at true TTC 2.73 s and goes critical at 1.27 s. Scale search is the most accurate single method (about 5%); Horn reads 10–30% fast; divergence from PC (DIS) flow reads 30–40% slow because DIS smooths across object edges.
+
+## 13. References
 
 - shadowPunch/Optic-Flow-Estimation PR #1 and `deploy/vitis_ai/README.md`: https://github.com/shadowPunch/Optic-Flow-Estimation/pull/1
 - AMD PG338, DPUCZDX8G features: https://docs.amd.com/r/en-US/pg338-dpu/Features
