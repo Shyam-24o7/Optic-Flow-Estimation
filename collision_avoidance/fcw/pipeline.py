@@ -106,7 +106,7 @@ class FcwPipeline:
         self.fusion = TtcFusion(cfg.fusion)
         self.course = CourseChecker(cfg.course)
         self.fsms: dict[int, WarningFsm] = {}
-        self.ring: deque = deque(maxlen=HISTORY)   # (frame_index, gray)
+        self.ring: deque = deque(maxlen=HISTORY)   # (frame_index, time_s, gray)
         self._index = -1
         self._prev_t: float | None = None
         self._on_course: set[int] = set()
@@ -121,7 +121,7 @@ class FcwPipeline:
         self._prev_t = t
         frame = cv2.resize(frame_bgr, (self.cfg.frame_width, self.cfg.frame_height))
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        prev_gray = self.ring[-1][1] if self.ring else None
+        prev_gray = self.ring[-1][2] if self.ring else None
 
         mark = time.perf_counter()
         flow = self.flow_source(prev_gray, gray) if prev_gray is not None else np.zeros((*gray.shape, 2), np.float32)
@@ -137,7 +137,7 @@ class FcwPipeline:
         ego = self.ego.update(flow, prev_boxes) if prev_gray is not None else EgoMotion.identity()
         heading = tuple(ego.foe) if ego.foe is not None else self.pp
         yaw_rate = float(ego.rvec[1]) / dt
-        self.ring.append((self._index, gray))
+        self.ring.append((self._index, t, gray))
         timings["track_ego"] = (time.perf_counter() - mark) * 1e3
 
         mark = time.perf_counter()
@@ -158,10 +158,10 @@ class FcwPipeline:
             return (tr.id not in self._on_course, -(x2 - x1) * (y2 - y1))
         return sorted(tracks.values(), key=priority)[: self.cfg.max_ttc_tracks]
 
-    def _gray_at(self, frame_index: int) -> np.ndarray | None:
-        for index, gray in self.ring:
+    def _frame_at(self, frame_index: int) -> tuple[float, np.ndarray] | None:
+        for index, time_s, gray in self.ring:
             if index == frame_index:
-                return gray
+                return time_s, gray
         return None
 
     def _assess(self, track, gray, prev_gray, flow, ego, heading, yaw_rate, t, dt) -> ObjectResult:
@@ -172,9 +172,10 @@ class FcwPipeline:
         measurements = [m for m in [looming(track)] if m is not None]
         if prev_gray is not None and not track.lost:
             k = choose_gap(eta_prior, dt, available=len(self.ring) - 1)
-            gray_tk, box_tk = self._gray_at(self._index - k), track.box_at(self._index - k)
-            if k and gray_tk is not None and box_tk is not None:
-                m = scale_ttc(gray, gray_tk, box, box_tk, k, dt, cfg.scale)
+            past, box_tk = self._frame_at(self._index - k), track.box_at(self._index - k)
+            if k and past is not None and box_tk is not None and t > past[0]:
+                # The real span, not k * dt: frames can arrive irregularly.
+                m = scale_ttc(gray, past[1], box, box_tk, k, (t - past[0]) / k, cfg.scale)
                 if m is not None:
                     measurements.append(m)
             level = choose_level(eta_prior, box, float(np.hypot(track.x[4], track.x[5])), dt)

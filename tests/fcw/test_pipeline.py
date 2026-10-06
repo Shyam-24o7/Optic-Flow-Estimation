@@ -79,3 +79,16 @@ def test_ttc_is_limited_to_sixteen_tracks():
     for i in range(3):
         result = pipeline.process(cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR), i / 30)
     assert len(pipeline.tracker.tracks) == 20 and len(result.objects) == 16
+
+
+def test_scale_search_uses_the_real_time_span_when_frames_arrive_irregularly():
+    # Every third frame is lost: gaps alternate between 1/30 s and 2/30 s, so k * (latest dt) is not the span.
+    scene = synth.render_scene(synth.SceneConfig(n_frames=60, z0_m=40.0, closing_speed_mps=15.0))
+    pipeline = FcwPipeline(FcwConfig(), lambda f: [Detection(scene.boxes[current], "car", 0.9)], DisFlow())
+    errors = []
+    for current in [i for i in range(60) if i % 3 != 2]:
+        result = pipeline.process(cv2.cvtColor(scene.frames[current], cv2.COLOR_GRAY2BGR), current / 30)
+        scale = [m for m in result.objects[0].measurements if m.method == "scale"]
+        if current >= 30 and scale:
+            errors.append(abs(scale[0].ttc_s - scene.ttc_s[current]) / scene.ttc_s[current])
+    assert errors and max(errors) < 0.1
