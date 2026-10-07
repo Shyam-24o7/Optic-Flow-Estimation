@@ -314,8 +314,94 @@ def export_divergence(out: Path) -> None:
     w.close()
 
 
+METHOD_INDEX = {"looming": 0, "scale": 1, "horn": 2, "divergence": 3}
+
+
+def export_fusion(out: Path) -> None:
+    from collision_avoidance.fcw.fusion import FusionConfig, TtcFusion
+    from collision_avoidance.fcw.measurement import Measurement
+
+    dt, methods = 1 / 30, list(METHOD_INDEX)
+    rng = np.random.default_rng(0)
+    scenarios = {}
+    steps = []
+    for i in range(60):
+        tau = 3.0 - i * dt
+        steps.append([Measurement("scale", 1 / tau + rng.normal(0, 0.03), 0.03**2), Measurement("horn", 1 / tau + rng.normal(0, 0.05), 0.05**2)])
+    scenarios["track"] = (5, steps)
+    scenarios["outlier"] = (5, [[Measurement("scale", 0.5, 0.01**2)]] * 20 + [[Measurement("horn", 5.0, 0.05**2)]])
+    scenarios["reinit"] = (3, [[Measurement("scale", 0.2, 0.01**2)]] * 10 + [[Measurement("scale", 2.0, 0.01**2)]] * 5)
+    scenarios["receding"] = (5, [[Measurement("looming", -0.3, 0.01)]])
+    mixed = []
+    for i in range(300):
+        eta_true = 0.3 + 0.004 * i
+        ms = []
+        for m in methods:
+            if rng.random() < 0.7:
+                eta = eta_true + rng.normal(0, 0.05) + (rng.normal(0, 2) if rng.random() < 0.05 else 0.0)
+                ms.append(Measurement(m, eta, float(rng.uniform(0.0005, 0.05))))
+        mixed.append(ms)
+    scenarios["mixed"] = (5, mixed)
+
+    w = Writer(out, "fusion")
+    w.num("dt", dt)
+    w.str("scenarios", ",".join(scenarios))
+    for name, (max_rejects, seq) in scenarios.items():
+        fusion = TtcFusion(FusionConfig(max_consecutive_rejects=max_rejects))
+        w.num(f"{name}_max_rejects", max_rejects)
+        w.num(f"{name}_steps", len(seq))
+        for i, ms in enumerate(seq):
+            k = f"{name}_s{i}"
+            w.mat(f"{k}_in", np.array([[METHOD_INDEX[m.method], m.eta, m.var] for m in ms], float).reshape(-1, 3))
+            est = fusion.update(1, i * dt, dt, ms)
+            w.num(f"{k}_has", est is not None)
+            if est is not None:
+                w.mat(f"{k}_out", np.array([[est.eta, est.eta_var,
+                                             np.nan if est.ttc_s is None else est.ttc_s,
+                                             np.nan if est.sigma_ttc_s is None else est.sigma_ttc_s]]))
+                w.mat(f"{k}_accepted", np.array([METHOD_INDEX[m.method] for m in est.measurements], float).reshape(-1, 1))
+                w.mat(f"{k}_recent", np.array(sorted(METHOD_INDEX[m] for m in est.recent_methods), float).reshape(-1, 1))
+    w.close()
+
+
+def export_collision(out: Path) -> None:
+    from collision_avoidance.fcw.collision import CourseChecker, WarningFsm
+
+    dt = 1 / 30
+    rng = np.random.default_rng(1)
+    classes = ["car", "truck", "person", "dog", "bicycle"]
+    course = []
+    for i in range(300):
+        x, z = rng.uniform(-6, 6), rng.uniform(5, 60)
+        width = {"car": 1.8, "truck": 2.5, "person": 0.5, "dog": 0.6, "bicycle": 0.6}[cls := classes[int(rng.integers(0, 5))]]
+        y2 = 192 + rng.uniform(-30, 80)
+        ttc = None if rng.random() < 0.1 else float(rng.uniform(0.5, 8))
+        t = (i // 3) * dt if rng.random() < 0.9 else ((i // 3) - 1) * dt   # some repeated / earlier times
+        course.append((t, (256 + 500 * (x - width / 2) / z, y2 - 40, 256 + 500 * (x + width / 2) / z, y2), cls,
+                       256.0 + rng.normal(0, 5), 192.0, ttc, float(rng.normal(0, 0.06))))
+    fsm = []
+    for i in range(300):
+        fsm.append((bool(rng.random() < 0.8), None if rng.random() < 0.05 else float(rng.uniform(0.8, 4.0)),
+                    None if rng.random() < 0.1 else float(rng.uniform(0.0, 0.5)), int(rng.integers(0, 5))))
+    w = Writer(out, "collision")
+    w.str("classes", ",".join(classes))
+    checker = CourseChecker()
+    w.num("course_steps", len(course))
+    for i, (t, box, cls, hx, hy, ttc, yaw) in enumerate(course):
+        k = f"course_s{i}"
+        tid = i % 3
+        w.mat(f"{k}_in", np.array([[tid, t, *box, classes.index(cls), hx, hy, np.nan if ttc is None else ttc, yaw]]))
+        r = checker.update(tid, t, box, cls, hx, hy, ttc, yaw)
+        w.mat(f"{k}_out", np.array([[r.on_course, r.r, np.nan if r.r_contact is None else r.r_contact, r.threshold]], float))
+    machine = WarningFsm()
+    w.num("fsm_steps", len(fsm))
+    w.mat("fsm_in", np.array([[on, np.nan if t is None else t, np.nan if s is None else s, m] for on, t, s, m in fsm], float))
+    w.mat("fsm_out", np.array([[int(machine.step(*args))] for args in fsm], float))
+    w.close()
+
+
 EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale, "horn": export_horn,
-             "divergence": export_divergence}
+             "divergence": export_divergence, "fusion": export_fusion, "collision": export_collision}
 
 
 def main(argv=None) -> None:

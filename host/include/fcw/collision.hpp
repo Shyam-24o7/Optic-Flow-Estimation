@@ -1,0 +1,70 @@
+// Course check and warning state machine. Port of collision_avoidance/fcw/collision.py.
+#pragma once
+
+#include <deque>
+#include <map>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "fcw/types.hpp"
+
+namespace fcw {
+
+struct CourseConfig {
+  double ego_width_m = 1.8;
+  double margin_m = 0.3;
+  std::map<std::string, double> class_width_m{{"car", 1.8}, {"truck", 2.5}, {"bus", 2.5}, {"motorcycle", 0.8}, {"bicycle", 0.6}, {"person", 0.5}};
+  double history_s = 0.5;
+  double turn_yaw_rate_rps = 3.0 * 3.14159265358979323846 / 180.0;
+  double turn_widen = 1.5;
+};
+
+struct CourseResult {
+  bool on_course = false;
+  double r = 0;
+  std::optional<double> r_contact;
+  double threshold = 0;
+};
+
+class CourseChecker {
+ public:
+  explicit CourseChecker(CourseConfig cfg = {}) : cfg_(std::move(cfg)) {}
+  CourseResult update(int track_id, double t, const Box& box, const std::string& cls, double heading_x, double horizon_y,
+                      std::optional<double> ttc_s, double yaw_rate_rps);
+  void retain(const std::vector<int>& track_ids);
+  const CourseConfig& config() const { return cfg_; }
+
+ private:
+  CourseConfig cfg_;
+  std::map<int, std::deque<std::pair<double, double>>> history_;
+};
+
+enum class Level { None = 0, Warning = 1, Critical = 2 };
+
+struct WarningConfig {
+  double warn_ttc_s = 2.7;
+  int warn_frames = 3;
+  double warn_clear_ttc_s = 3.2;
+  double critical_ttc_s = 1.5;
+  double critical_clear_ttc_s = 2.0;
+  int clear_frames = 10;
+  int min_methods = 2;
+};
+
+class WarningFsm {
+ public:
+  explicit WarningFsm(WarningConfig cfg = {}) : cfg_(cfg) {}
+  Level step(bool on_course, std::optional<double> ttc_s, std::optional<double> sigma_ttc_s, int recent_methods);
+  Level level() const { return level_; }
+
+ private:
+  void enter(Level l) { level_ = l; warn_count_ = 0; clear_count_ = 0; }
+  WarningConfig cfg_;
+  Level level_ = Level::None;
+  int warn_count_ = 0;
+  int clear_count_ = 0;
+};
+
+}  // namespace fcw
