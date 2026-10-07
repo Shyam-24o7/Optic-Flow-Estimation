@@ -470,11 +470,38 @@ EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export
              "divergence": export_divergence, "fusion": export_fusion, "collision": export_collision, "pipeline": export_pipeline}
 
 
+def record_detections(video: Path, out_file: Path, max_frames: int, weights: str = "yolov9t.pt") -> None:
+    """Per-frame YOLOv9t detections at 512x384, for fcw_app --detections on the PC."""
+    from collision_avoidance.fcw.__main__ import make_detector
+
+    detector = make_detector(weights, 0.5, "auto")
+    cap = cv2.VideoCapture(str(video))
+    fs = cv2.FileStorage(str(out_file), cv2.FILE_STORAGE_WRITE)
+    i = 0
+    while not max_frames or i < max_frames:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        dets = detector(cv2.resize(frame, (512, 384)))
+        fs.write(f"f{i}_dets", np.array([d.bbox for d in dets], np.float64).reshape(-1, 4))
+        fs.write(f"f{i}_cls", ",".join(d.class_name for d in dets))
+        i += 1
+    fs.write("frames", i)
+    fs.release()
+    print("wrote", out_file, i, "frames")
+
+
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", type=Path, default=Path("host/tests/golden"))
     p.add_argument("--only", nargs="*", choices=sorted(EXPORTERS))
+    p.add_argument("--record-detections", type=Path, help="video to run YOLOv9t on (instead of exporting goldens)")
+    p.add_argument("--record-out", type=Path, default=Path("detections.yml.gz"))
+    p.add_argument("--max-frames", type=int, default=0)
     args = p.parse_args(argv)
+    if args.record_detections:
+        record_detections(args.record_detections, args.record_out, args.max_frames)
+        return
     for name in args.only or EXPORTERS:
         EXPORTERS[name](args.out)
 
