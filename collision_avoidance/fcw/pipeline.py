@@ -72,6 +72,7 @@ class FcwFrame:
     heading: tuple[float, float]  # FOE, or the principal point when there is none
     objects: list[ObjectResult]
     timings_ms: dict[str, float] = field(default_factory=dict)
+    dt_s: float = 0.0             # time step used for this frame
 
     @property
     def threat(self) -> ObjectResult | None:
@@ -118,7 +119,8 @@ class FcwPipeline:
         dt = t - self._prev_t if self._prev_t is not None else 0.0
         if dt <= 0:  # first frame, or a repeated/out-of-order timestamp
             dt = 1.0 / self.cfg.default_fps
-        self._prev_t = t
+        if self._prev_t is None or t > self._prev_t:  # never move the clock backwards
+            self._prev_t = t
         frame = cv2.resize(frame_bgr, (self.cfg.frame_width, self.cfg.frame_height))
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         prev_gray = self.ring[-1][2] if self.ring else None
@@ -149,7 +151,7 @@ class FcwPipeline:
         self._on_course = {o.track_id for o in objects if o.course and o.course.on_course}
         timings["ttc"] = (time.perf_counter() - mark) * 1e3
         timings["total"] = (time.perf_counter() - t0) * 1e3
-        return FcwFrame(self._index, t, frame, flow, ego, heading, objects, timings)
+        return FcwFrame(self._index, t, frame, flow, ego, heading, objects, timings, dt)
 
     def _select(self, tracks: dict[int, ScaleTrack]) -> list[ScaleTrack]:
         """At most max_ttc_tracks: last frame's on-course tracks first, then the largest boxes."""

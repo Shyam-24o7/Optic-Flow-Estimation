@@ -93,7 +93,8 @@ class ScaleTracker:
             self._create(detections[d])
         self.tracks = {tid: t for tid, t in self.tracks.items() if t.lost <= self.cfg.max_lost}
         for track in self.tracks.values():
-            track.history.append((frame_index, track.bbox))
+            if not track.lost:  # predicted boxes must not stand in for measurements
+                track.history.append((frame_index, track.bbox))
         return self.tracks
 
     def _transition(self, dt: float) -> tuple[np.ndarray, np.ndarray]:

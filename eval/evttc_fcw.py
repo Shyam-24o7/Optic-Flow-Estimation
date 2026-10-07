@@ -40,6 +40,8 @@ def target_object(result, box_512):
 
 def evaluate_sequence(seq_dir: Path, detector, warmup: int = 20) -> dict:
     gt, annotations = evttc.load_gt(seq_dir), evttc.load_annotations(seq_dir)
+    if not annotations:  # the target cannot be identified without at least one annotated box
+        return {"name": seq_dir.name, "rows": [], "skipped": "no annotations"}
     fps = evttc.video_fps(seq_dir / "video.mp4")
     sync = evttc.estimate_sync_offset(annotations, gt, fps)
     first = math.ceil((gt.t.iloc[0] - sync.offset_s) * fps)
@@ -66,7 +68,7 @@ def evaluate_sequence(seq_dir: Path, detector, warmup: int = 20) -> dict:
             "level": obj.level if obj else Level.NONE,
             "measurements": [] if obj is None else [(m.method, m.eta, m.var) for m in obj.measurements],
         })
-    return {"name": seq_dir.name, "rows": rows}
+    return {"name": seq_dir.name, "rows": rows, "skipped": None}
 
 
 def summarise(results: list[dict]) -> dict:
@@ -88,7 +90,7 @@ def summarise(results: list[dict]) -> dict:
         summary[f"{method}_coverage"] = metrics.coverage(per)
     summary["var_scale"] = metrics.variance_scale(records)
     events = [metrics.first_warning_ttc([r["level"] for r in res["rows"]], [r["gt_ttc"] for r in res["rows"]])
-              for res in results if min(r["gt_ttc"] for r in res["rows"]) < 2.0]
+              for res in results if res["rows"] and min(r["gt_ttc"] for r in res["rows"]) < 2.0]
     summary["warned_by_2s"] = metrics.warned_in_time(events)
     summary["approach_events"] = len(events)
     return summary
@@ -108,6 +110,9 @@ def main(argv=None) -> None:
     run = start_run("fcw-eval-evttc", {"sequences": [d.name for d in seq_dirs]}, tags=["fcw", "eval", "evttc"])
     results = [evaluate_sequence(d, detector) for d in seq_dirs]
     for res in results:
+        if res["skipped"]:
+            print(f"{res['name']:24s} skipped: {res['skipped']}")
+            continue
         one = summarise([res])
         print(f"{res['name']:24s} fused_err={one['fused_median_rel_err']:.3f} coverage={one['fused_coverage']:.2f}")
     summary = summarise(results)

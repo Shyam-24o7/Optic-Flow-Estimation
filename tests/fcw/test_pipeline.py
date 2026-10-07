@@ -92,3 +92,12 @@ def test_scale_search_uses_the_real_time_span_when_frames_arrive_irregularly():
         if current >= 30 and scale:
             errors.append(abs(scale[0].ttc_s - scene.ttc_s[current]) / scene.ttc_s[current])
     assert errors and max(errors) < 0.1
+
+
+def test_out_of_order_timestamp_does_not_inflate_the_next_step():
+    scene = synth.render_scene(synth.SceneConfig(n_frames=4))
+    pipeline = FcwPipeline(FcwConfig(), lambda f: [Detection(scene.boxes[0], "car", 0.9)], DisFlow())
+    times = [0.0, 1 / 30, 0.0, 2 / 30]  # the third frame arrives with a stale timestamp
+    results = [pipeline.process(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), t) for g, t in zip(scene.frames, times)]
+    assert results[2].dt_s == pytest.approx(1 / 30)   # fallback to the nominal period
+    assert results[3].dt_s == pytest.approx(1 / 30)   # measured from 1/30, not from the stale 0.0

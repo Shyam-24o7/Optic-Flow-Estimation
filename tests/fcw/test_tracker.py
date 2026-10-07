@@ -55,3 +55,14 @@ def test_looming_needs_a_few_detections():
     tracker = ScaleTracker()
     tracks = tracker.update([det([10, 10, 50, 50])], DT, 0)
     assert looming(next(iter(tracks.values()))) is None
+
+
+def test_history_keeps_only_detected_boxes():
+    # A lost track's predicted box must not stand in for a measurement in a later scale search.
+    tracker = ScaleTracker()
+    for i in range(5):
+        tracker.update([det([100, 100, 160, 150])], DT, i)
+    tracker.update([], DT, 5)
+    track = tracker.update([det([100, 100, 160, 150])], DT, 6)[0]
+    assert track.box_at(4) is not None and track.box_at(6) is not None
+    assert track.box_at(5) is None
