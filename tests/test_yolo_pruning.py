@@ -28,9 +28,12 @@ def image():
 
 
 def test_split_rewrite_is_exact(base, image):
-    split = yolo_pruning.split_elan_blocks(copy.deepcopy(base)).eval()
+    # Compare in float64: in float32 the split only reorders additions, which moves outputs of
+    # magnitude ~100 by a few ulp (2e-4 seen on CPU), more than an absolute 1e-5 allows.
+    split = yolo_pruning.split_elan_blocks(copy.deepcopy(base)).eval().double()
+    reference = copy.deepcopy(base).double()
     with torch.no_grad():
-        torch.testing.assert_close(split(image)[0], base(image)[0], rtol=0, atol=1e-5)
+        torch.testing.assert_close(split(image.double())[0], reference(image.double())[0], rtol=0, atol=1e-9)
 
 
 def test_removing_dead_channels_preserves_the_function(base, image):
