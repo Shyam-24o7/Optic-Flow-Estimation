@@ -73,11 +73,12 @@ std::optional<TtcEstimate> TtcFusion::update(int track_id, double t, double dt, 
   est.track_id = track_id;
   est.eta = *f.eta;
   est.eta_var = f.var;
-  if (*f.eta > cfg_.min_eta) {
+  est.recent_methods = f.recentMethods(t);
+  // Prediction alone drives eta up hyperbolically: without recent data there is no TTC.
+  if (*f.eta > cfg_.min_eta && !est.recent_methods.empty()) {
     est.ttc_s = 1.0 / *f.eta;
     est.sigma_ttc_s = std::sqrt(f.var) / (*f.eta * *f.eta);
   }
-  est.recent_methods = f.recentMethods(t);
   return est;
 }
 

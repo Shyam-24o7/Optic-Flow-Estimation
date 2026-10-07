@@ -48,3 +48,13 @@ def test_retain_drops_filters():
     fusion.update(2, 0.0, DT, [Measurement("looming", 0.3, 0.01)])
     fusion.retain([2])
     assert set(fusion.filters) == {2}
+
+
+def test_estimate_without_recent_measurements_has_no_ttc():
+    # Prediction alone drives eta up hyperbolically; after 0.5 s without data it must not report a TTC.
+    fusion = TtcFusion()
+    for i in range(10):
+        fusion.update(1, i * DT, DT, [Measurement("scale", 0.5, 0.01**2)])
+    for i in range(10, 30):
+        est = fusion.update(1, i * DT, DT, [])
+    assert est.ttc_s is None and est.recent_methods == frozenset()

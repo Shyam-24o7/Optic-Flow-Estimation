@@ -153,7 +153,8 @@ ObjectResult FcwPipeline::assess(const ScaleTrack& track, const cv::Mat& gray, c
   const std::optional<double> ttc = res.estimate ? res.estimate->ttc_s : std::nullopt;
   res.course = course_.update(track.id, t, box, track.cls, heading.x, heading.y, ttc, yaw_rate);
   WarningFsm& fsm = fsms_.try_emplace(track.id, cfg_.warning).first->second;
-  res.level = fsm.step(res.course->on_course, ttc, res.estimate ? res.estimate->sigma_ttc_s : std::nullopt,
+  // A lost track is a prediction, not an observation: it may hold nothing and raise nothing.
+  res.level = fsm.step(res.course->on_course && !track.lost, ttc, res.estimate ? res.estimate->sigma_ttc_s : std::nullopt,
                        res.estimate ? static_cast<int>(res.estimate->recent_methods.size()) : 0);
   return res;
 }

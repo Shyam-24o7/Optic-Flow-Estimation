@@ -101,3 +101,14 @@ def test_out_of_order_timestamp_does_not_inflate_the_next_step():
     results = [pipeline.process(cv2.cvtColor(g, cv2.COLOR_GRAY2BGR), t) for g, t in zip(scene.frames, times)]
     assert results[2].dt_s == pytest.approx(1 / 30)   # fallback to the nominal period
     assert results[3].dt_s == pytest.approx(1 / 30)   # measured from 1/30, not from the stale 0.0
+
+
+def test_lost_track_cannot_escalate_or_hold_a_warning():
+    # The object is detected until true TTC is ~2 s, then the detector loses it.
+    scene = synth.render_scene(synth.SceneConfig(n_frames=70, z0_m=50.0, closing_speed_mps=15.0))
+    pipeline = FcwPipeline(FcwConfig(), lambda f: [Detection(scene.boxes[current], "car", 0.9)] if current < 40 else [], DisFlow())
+    levels = []
+    for current in range(70):
+        levels.append(pipeline.process(cv2.cvtColor(scene.frames[current], cv2.COLOR_GRAY2BGR), current / 30).level)
+    assert Level.CRITICAL not in levels[40:]   # no escalation from extrapolated predictions
+    assert levels[-1] == Level.NONE            # cleared while the track is lost, before it is deleted

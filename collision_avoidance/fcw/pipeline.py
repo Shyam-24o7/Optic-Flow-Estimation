@@ -194,6 +194,7 @@ class FcwPipeline:
         ttc = estimate.ttc_s if estimate else None
         course = self.course.update(track.id, t, box, track.class_name, heading[0], heading[1], ttc, yaw_rate)
         fsm = self.fsms.setdefault(track.id, WarningFsm(cfg.warning))
-        level = fsm.step(course.on_course, ttc, estimate.sigma_ttc_s if estimate else None,
+        # A lost track is a prediction, not an observation: it may hold nothing and raise nothing.
+        level = fsm.step(course.on_course and not track.lost, ttc, estimate.sigma_ttc_s if estimate else None,
                          len(estimate.recent_methods) if estimate else 0)
         return ObjectResult(track.id, box, track.class_name, estimate, course, level, measurements)

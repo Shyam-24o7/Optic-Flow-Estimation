@@ -103,12 +103,14 @@ class TtcFusion:
         accepted = f.update(t, measurements)
         if f.eta is None:
             return None
-        approaching = f.eta > self.cfg.min_eta
+        recent = f.recent_methods(t)
+        # Prediction alone drives eta up hyperbolically: without recent data there is no TTC.
+        approaching = f.eta > self.cfg.min_eta and bool(recent)
         return TtcEstimate(
             track_id, f.eta, f.var,
             1.0 / f.eta if approaching else None,
             float(np.sqrt(f.var)) / f.eta**2 if approaching else None,
-            tuple(accepted), f.recent_methods(t),
+            tuple(accepted), recent,
         )
 
     def retain(self, track_ids) -> None:
