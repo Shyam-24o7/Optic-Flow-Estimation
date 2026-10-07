@@ -258,7 +258,64 @@ def export_horn(out: Path) -> None:
     w.close()
 
 
-EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale, "horn": export_horn}
+def export_divergence(out: Path) -> None:
+    import cv2 as _cv2
+    from collision_avoidance.fcw import synth
+    from collision_avoidance.fcw.divergence import DivergenceConfig, divergence_ttc, flow_moments, robust_mask
+    from collision_avoidance.fcw.ego_rotation import rotation_divergence
+
+    dt, W, H = 1 / 30, 512, 384
+    K = synth.intrinsics(500, W, H)
+    pp = (K[0, 2], K[1, 2])
+    box = (180.0, 140.0, 300.0, 230.0)
+    ys, xs = np.mgrid[0:H, 0:W].astype(np.float64)
+
+    def looming(rate, center=(240, 185), lateral=(0.0, 0.0)):
+        return np.stack([(xs - center[0]) * rate + lateral[0], (ys - center[1]) * rate + lateral[1]], axis=-1)
+
+    R = _cv2.Rodrigues(np.array([0.01, -0.015, 0.0]))[0]
+    _, rot = synth.flow_from_motion(K, R, np.zeros(3), 50.0, W, H, step=1)
+    leak = looming(0.02)
+    leak[140:160, 180:300] = (5.0, 0.0)
+    center = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+    cases = [("expanding", looming(0.025, lateral=(2.0, -1.0)), 0.0),
+             ("rotation", looming(0.02) + rot.reshape(H, W, 2), rotation_divergence(R, K, center)),
+             ("leak", leak, 0.0)]
+    cfg = DivergenceConfig()
+    x0, y0, x1, y1 = 176, 136, 304, 234   # stored window around the box
+    w = Writer(out, "divergence")
+    w.num("dt", dt)
+    w.mat("pp", np.array([pp]))
+    w.mat("box", np.array([box]))
+    w.mat("window", np.array([[x0, y0, x1, y1]], float))
+    w.num("cases", len(cases))
+    for i, (name, flow, rot_div) in enumerate(cases):
+        k = f"c{i}"
+        flow = flow.astype(np.float32)
+        w.str(f"{k}_name", name)
+        w.mat(f"{k}_flow", flow[y0:y1, x0:x1].copy())
+        w.num(f"{k}_rotdiv", rot_div)
+        m = flow_moments(flow, box, pp, shrink=cfg.shrink)
+        w.mat(f"{k}_moments", m.reshape(1, -1))
+        plain = divergence_ttc(m, box, rot_div, 1, dt, cfg)
+        w.num(f"{k}_plain_eta", plain.eta)
+        w.num(f"{k}_plain_var", plain.var)
+        # RANSAC sample triples exactly as robust_mask draws them (numpy default_rng(0)).
+        bx1, by1 = max(0, int(box[0])), max(0, int(box[1]))
+        bx2, by2 = min(W, int(np.ceil(box[2]))), min(H, int(np.ceil(box[3])))
+        n_sub = len(np.arange(by1, by2)[::cfg.ransac_stride]) * len(np.arange(bx1, bx2)[::cfg.ransac_stride])
+        rng = np.random.default_rng(0)
+        w.mat(f"{k}_samples", np.array([rng.choice(n_sub, 3, replace=False) for _ in range(cfg.ransac_iterations)], float))
+        mask = robust_mask(flow, box, pp, cfg)
+        w.mat(f"{k}_mask", mask[y0:y1, x0:x1].astype(np.uint8))
+        robust = divergence_ttc(flow_moments(flow, box, pp, mask, cfg.shrink), box, rot_div, 1, dt, cfg)
+        w.num(f"{k}_robust_eta", robust.eta)
+        w.num(f"{k}_robust_var", robust.var)
+    w.close()
+
+
+EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale, "horn": export_horn,
+             "divergence": export_divergence}
 
 
 def main(argv=None) -> None:
