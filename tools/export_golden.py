@@ -95,7 +95,70 @@ def export_tracker(out: Path) -> None:
     w.close()
 
 
-EXPORTERS = {"harness": export_harness, "tracker": export_tracker}
+def _ego(w, key, ego):
+    w.mat(f"{key}_R", ego.R)
+    w.num(f"{key}_valid", ego.valid)
+    w.num(f"{key}_stationary", ego.stationary)
+    w.num(f"{key}_has_foe", ego.foe is not None)
+    if ego.foe is not None:
+        w.mat(f"{key}_foe", np.asarray(ego.foe, float).reshape(1, 2))
+
+
+def export_ego(out: Path) -> None:
+    """Grid samples per case (all the estimator sees), the resulting EgoMotion, and a small sampling case."""
+    import cv2 as _cv2
+    from collision_avoidance.fcw import synth
+    from collision_avoidance.fcw.ego_rotation import EgoRotationConfig, EgoRotationEstimator, grid_samples, rotation_divergence
+
+    W, H = 512, 384
+    K = synth.intrinsics(500, W, H)
+    cfg = EgoRotationConfig()
+
+    def dense(R, t, depth):
+        _, f = synth.flow_from_motion(K, R, t, depth, W, H, step=1)
+        return f.reshape(H, W, 2).astype(np.float32)
+
+    def road(xs, ys):
+        return 8.0 + 60.0 * np.random.default_rng(0).random(xs.shape)
+
+    fwd = np.array([0.0, 0.0, -0.5])
+    truck = dense(synth.rotation_y(np.radians(0.3)), fwd, road)
+    truck[100:300, 150:350] += np.array([6.0, -2.0], np.float32)
+    good = dense(synth.rotation_y(np.radians(0.3)), fwd, road)
+    noise = np.random.default_rng(1).normal(0, 5, (H, W, 2)).astype(np.float32)
+    # Each case is a sequence of (flow, excluded boxes) fed to one estimator.
+    cases = {
+        "yaw0": [(dense(synth.rotation_y(0.0), fwd, road), [])],
+        "yaw04": [(dense(synth.rotation_y(np.radians(0.4)), fwd, road), [])],
+        "yawm08": [(dense(synth.rotation_y(np.radians(-0.8)), fwd, road), [])],
+        "pure": [(dense(synth.rotation_y(np.radians(0.5)), np.zeros(3), 30.0), [])],
+        "truck": [(truck, [(150, 100, 350, 300)])],
+        "hold": [(good, []), (noise, [])],
+    }
+    w = Writer(out, "ego")
+    w.mat("K", K)
+    for name, seq in cases.items():
+        est = EgoRotationEstimator(K)
+        w.num(f"{name}_steps", len(seq))
+        for i, (flow, boxes) in enumerate(seq):
+            prev, curr = grid_samples(flow, boxes, cfg)
+            w.mat(f"{name}_s{i}_prev", prev)
+            w.mat(f"{name}_s{i}_curr", curr)
+            _ego(w, f"{name}_s{i}", est.update(flow, boxes))
+    small = np.random.default_rng(2).normal(0, 1, (48, 64, 2)).astype(np.float32)
+    w.mat("small_flow", small)
+    prev, curr = grid_samples(small, [(10, 5, 30, 20)], EgoRotationConfig(grid_step_px=8, hood_rows=4))
+    w.mat("small_prev", prev)
+    w.mat("small_curr", curr)
+    for j, c in enumerate([(256, 192), (400, 100), (60, 330)]):
+        R = _cv2.Rodrigues(np.array([0.004, -0.006, 0.002]))[0]
+        w.mat(f"div{j}_R", R)
+        w.mat(f"div{j}_c", np.array([c], float))
+        w.num(f"div{j}_value", rotation_divergence(R, K, c))
+    w.close()
+
+
+EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego}
 
 
 def main(argv=None) -> None:
