@@ -33,6 +33,12 @@ class Writer:
     def str(self, key: str, value: str) -> None:
         self.fs.write(key, value)
 
+    def png(self, key: str, image) -> None:
+        """Lossless image next to the YAML; the key stores the file name."""
+        name = f"{self.path.name.split('.')[0]}_{key}.png"
+        cv2.imwrite(str(self.path.parent / name), image)
+        self.fs.write(key, name)
+
     def close(self) -> None:
         self.fs.release()
         print("wrote", self.path)
@@ -158,7 +164,45 @@ def export_ego(out: Path) -> None:
     w.close()
 
 
-EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego}
+def export_scale(out: Path) -> None:
+    from collision_avoidance.fcw import synth
+    from collision_avoidance.fcw.scale_search import choose_gap, scale_ttc, search_scale
+
+    dt = 1 / 30
+    approach = synth.render_scene(synth.SceneConfig(n_frames=25))
+    static = synth.render_scene(synth.SceneConfig(n_frames=9, closing_speed_mps=0.0, z0_m=15.0))
+    sideways = synth.render_scene(synth.SceneConfig(n_frames=9, closing_speed_mps=0.0, z0_m=15.0, lateral_speed_mps=4.0))
+    tiny = synth.render_scene(synth.SceneConfig(n_frames=5, z0_m=200.0))
+    cases = [("k2", approach, 24, 2), ("k4", approach, 24, 4), ("k8", approach, 24, 8),
+             ("static", static, 8, 8), ("sideways", sideways, 8, 8), ("tiny", tiny, 4, 4)]
+    w = Writer(out, "scale")
+    w.num("dt", dt)
+    w.num("cases", len(cases))
+    for i, (name, scene, t, k) in enumerate(cases):
+        key = f"c{i}"
+        w.str(f"{key}_name", name)
+        w.png(f"{key}_gray_t", scene.frames[t])
+        w.png(f"{key}_gray_tk", scene.frames[t - k])
+        w.mat(f"{key}_box_t", np.asarray(scene.boxes[t], float).reshape(1, 4))
+        w.mat(f"{key}_box_tk", np.asarray(scene.boxes[t - k], float).reshape(1, 4))
+        w.num(f"{key}_k", k)
+        found = search_scale(scene.frames[t], scene.frames[t - k], scene.boxes[t], scene.boxes[t - k])
+        w.num(f"{key}_found", found is not None)
+        if found is not None:
+            w.num(f"{key}_s", found[0])
+            w.num(f"{key}_peak", found[1])
+        m = scale_ttc(scene.frames[t], scene.frames[t - k], scene.boxes[t], scene.boxes[t - k], k, dt)
+        w.num(f"{key}_has_m", m is not None)
+        if m is not None:
+            w.num(f"{key}_eta", m.eta)
+            w.num(f"{key}_var", m.var)
+    gaps = [(None, 8), (1.0, 8), (0.25, 8), (0.25, 3), (0.25, 0), (0.6, 8), (-0.2, 8)]
+    w.mat("gaps_in", np.array([[np.nan if e is None else e, a] for e, a in gaps]))
+    w.mat("gaps_out", np.array([[choose_gap(e, dt, available=a)] for e, a in gaps], float))
+    w.close()
+
+
+EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale}
 
 
 def main(argv=None) -> None:

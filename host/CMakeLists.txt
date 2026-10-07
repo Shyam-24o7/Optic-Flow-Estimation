@@ -9,7 +9,7 @@ endif()
 
 option(FCW_BOARD "Build the KV260 backends (VART, XRT)" OFF)
 
-find_package(OpenCV 4 REQUIRED COMPONENTS core imgproc calib3d video videoio highgui)
+find_package(OpenCV 4 REQUIRED COMPONENTS core imgproc imgcodecs calib3d video videoio highgui)
 find_package(Threads REQUIRED)
 
 file(GLOB FCW_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/*.cpp)

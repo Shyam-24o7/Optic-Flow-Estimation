@@ -2,6 +2,7 @@
 #pragma once
 
 #include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 #include <cstdint>
 #include <stdexcept>
@@ -26,6 +27,12 @@ class File {
   // int64 values are stored as decimal strings: FileStorage ints are 32-bit.
   int64_t i64(const std::string& key) const { return std::stoll(static_cast<std::string>(node(key))); }
   std::string str(const std::string& key) const { return static_cast<std::string>(node(key)); }
+  // Images are PNG files next to the YAML; the key holds the file name.
+  cv::Mat image(const std::string& key) const {
+    cv::Mat img = cv::imread(std::string(FCW_GOLDEN_DIR) + "/" + str(key), cv::IMREAD_UNCHANGED);
+    if (img.empty()) throw std::runtime_error("golden image missing: " + str(key));
+    return img;
+  }
   bool has(const std::string& key) const { return !fs_[key].empty(); }
 
  private:
