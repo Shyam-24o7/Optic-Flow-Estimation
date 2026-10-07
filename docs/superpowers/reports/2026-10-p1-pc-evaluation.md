@@ -70,6 +70,12 @@ Diagnosis on clip 003 (first 1,500 frames, 19 raises):
 - The **course check** is what fails. The heading (FOE x) jumps between 210 and 416 px on a 512 px frame, so the lateral-offset rate ṙ is noise and `r + ṙ·TTC` lands near 0 for cars that are currently 1.5–10 widths to the side (e.g. r = 4.30, r_contact = 0.52).
 - Two real-footage bugs found on the way were fixed in Python and C++ (lost tracks holding warnings; stale predictions driving TTC to 0). They cut critical frames on the first clip from 88 to 67 but did not touch the course-check problem.
 
+Course-check variants on the same 1,500 frames (raises / critical frames): FOE heading 10 / 347; FOE smoothed (EMA 0.05) 11 / 205; principal-point heading 14 / 224; on course now **and** at contact 7 / 151; no ṙ extrapolation 12 / 255. None comes near the target, so the heading jitter is not the main cause.
+
+Calibrated control: the same pipeline on the three KITTI raw drives (calibrated camera, 1.39 min of normal driving) raises **79 warnings per 10 min**. The false alarms are algorithmic, not a calibration artefact.
+
+What the remaining warnings are: parked cars along residential streets and oncoming cars, passed with roughly 0.5–1 m clearance. Their TTC to the object's plane really is about 1 s; the system cannot place them laterally precisely enough to tell "passing close" from "on our path", because the corridor test has only a 0.3–0.8 m margin and box/heading noise exceeds it. This needs a design change in how the path is defined (see the recommendations in the conversation of 2026-10-08), not a threshold tweak.
+
 ## To finish this report
 
 1. Fix the course check's heading instability and re-run `eval/false_alarms.py`; re-check EvTTC lead time.
