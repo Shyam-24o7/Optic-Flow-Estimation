@@ -29,6 +29,7 @@ find_package(GTest REQUIRED)
 file(GLOB FCW_TESTS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_*.cpp)
 add_executable(fcw_tests ${FCW_TESTS})
 target_link_libraries(fcw_tests PRIVATE fcw GTest::gtest_main)
-target_compile_definitions(fcw_tests PRIVATE FCW_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden")
+target_compile_definitions(fcw_tests PRIVATE FCW_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
+                                           FCW_GOLDEN_LOCAL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_local")
 include(GoogleTest)
 gtest_discover_tests(fcw_tests)

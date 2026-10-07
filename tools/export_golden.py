@@ -400,8 +400,74 @@ def export_collision(out: Path) -> None:
     w.close()
 
 
+def export_pipeline(out: Path) -> None:
+    """Whole-pipeline replays. Too large for git: written to golden_local/ next to `out`.
+
+    Flow is DIS, quantised to float16 and stored raw (H*W*2 values, row-major); the
+    Python pipeline itself runs on that quantised flow, so both languages see the same input.
+    """
+    from collision_avoidance.fcw import synth
+    from collision_avoidance.fcw.pipeline import DisFlow, FcwConfig, FcwPipeline
+    from collision_avoidance.tracking import Detection
+
+    local = out.parent / "golden_local"
+    local.mkdir(parents=True, exist_ok=True)
+    head_on = synth.render_scene(synth.SceneConfig(n_frames=80, z0_m=50.0, closing_speed_mps=15.0))
+    scenarios = {
+        "head_on": (head_on, list(range(80)), [i / 30 for i in range(80)]),
+        "next_lane": (synth.render_scene(synth.SceneConfig(n_frames=60, z0_m=50.0, closing_speed_mps=15.0, lateral_m=3.5)), list(range(60)), [i / 30 for i in range(60)]),
+        "static": (synth.render_scene(synth.SceneConfig(n_frames=30, z0_m=20.0, closing_speed_mps=0.0)), list(range(30)), [i / 30 for i in range(30)]),
+        "dropped": (head_on, list(range(0, 80, 2)), [i / 30 for i in range(0, 80, 2)]),
+        "irregular": (head_on, [i for i in range(60) if i % 3 != 2], [i / 30 for i in range(60) if i % 3 != 2]),
+        "out_of_order": (head_on, [0, 1, 2, 3], [0.0, 1 / 30, 0.0, 2 / 30]),
+    }
+    twenty = [np.array([10 + 30 * (i % 10), 100 + 60 * (i // 10), 35 + 30 * (i % 10), 150 + 60 * (i // 10)], float) for i in range(20)]
+    w = Writer(local, "pipeline")
+    w.str("scenarios", ",".join([*scenarios, "twenty"]))
+    dis = DisFlow()
+
+    def run(name, frames, boxes_per_frame, times):
+        state = {"i": 0}
+
+        def detector(_frame):
+            return [Detection(b, "car", 0.9) for b in boxes_per_frame[state["i"]]]
+
+        def flow_source(prev, curr):
+            flow = dis(prev, curr).astype(np.float16)
+            fname = f"pipeline_{name}_flow{state['i']}.bin"
+            flow.tofile(local / fname)
+            w.str(f"{name}_f{state['i']}_flow", fname)
+            return flow.astype(np.float32)
+
+        pipe = FcwPipeline(FcwConfig(), detector, flow_source)
+        w.num(f"{name}_frames", len(frames))
+        for i, (gray, t) in enumerate(zip(frames, times)):
+            state["i"] = i
+            k = f"{name}_f{i}"
+            w.png(k + "_gray", gray)
+            w.num(k + "_t", t)
+            w.mat(k + "_dets", np.array(boxes_per_frame[i], float).reshape(-1, 4))
+            r = pipe.process(cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR), t)
+            w.num(k + "_dt", r.dt_s)
+            w.mat(k + "_heading", np.array([r.heading], float))
+            w.num(k + "_ego_valid", r.ego.valid)
+            rows = []
+            for o in r.objects:
+                e = o.estimate
+                bits = sum(1 << METHOD_INDEX[m.method] for m in o.measurements)
+                rows.append([o.track_id, *o.bbox, int(o.level), e is not None, e.eta if e else np.nan,
+                             (e.ttc_s if e and e.ttc_s else np.nan), o.course.on_course if o.course else 0, bits])
+            w.mat(k + "_objects", np.array(rows, float).reshape(-1, 11))  # id, x1, y1, x2, y2, level, has_est, eta, ttc, on_course, method bits
+
+    for name, (scene, idx, times) in scenarios.items():
+        run(name, [scene.frames[i] for i in idx], [[scene.boxes[i]] for i in idx], times)
+    tex = synth.texture(384, 512, 0)
+    run("twenty", [tex] * 3, [twenty] * 3, [0.0, 1 / 30, 2 / 30])
+    w.close()
+
+
 EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale, "horn": export_horn,
-             "divergence": export_divergence, "fusion": export_fusion, "collision": export_collision}
+             "divergence": export_divergence, "fusion": export_fusion, "collision": export_collision, "pipeline": export_pipeline}
 
 
 def main(argv=None) -> None:
