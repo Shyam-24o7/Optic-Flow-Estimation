@@ -202,7 +202,63 @@ def export_scale(out: Path) -> None:
     w.close()
 
 
-EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale}
+def export_horn(out: Path) -> None:
+    from collision_avoidance.fcw import synth
+    from collision_avoidance.fcw.horn import HornConfig, choose_level, horn_at_level, horn_solve, horn_sums
+
+    dt = 1 / 30
+    rng = np.random.default_rng(3)
+    rand_prev = rng.integers(0, 256, (40, 50), dtype=np.uint8)
+    rand_curr = rng.integers(0, 256, (40, 50), dtype=np.uint8)
+    approach = synth.render_scene(synth.SceneConfig(n_frames=21))
+    side = synth.render_scene(synth.SceneConfig(n_frames=21, z0_m=15.0, closing_speed_mps=6.0, lateral_m=-1.0, lateral_speed_mps=1.5))
+    flat = np.full((384, 512), 128, np.uint8)
+    # 2-px checkerboard in both frames: maximal |Ex| and |Ey| everywhere, so the largest sums.
+    checker = np.kron((np.indices((192, 256)).sum(axis=0) % 2) * 255, np.ones((2, 2))).astype(np.uint8)
+    cases = [
+        ("pixel_loop", rand_prev, rand_curr, (10, 8, 30, 28), (25, 20), HornConfig(shrink=0.0, grad_threshold_l1=0), 0),
+        ("approach", approach.frames[19], approach.frames[20], tuple(approach.boxes[20]), (256, 192), HornConfig(), 0),
+        ("flat", flat, flat, (100, 100, 200, 200), (256, 192), HornConfig(), 0),
+        ("saturated", checker, checker, (1, 1, 511, 383), (256, 192), HornConfig(shrink=0.0, grad_threshold_l1=0), 0),
+        ("side_level2", side.frames[19], side.frames[20], tuple(side.boxes[20]), (256, 192), HornConfig(), 2),
+    ]
+    w = Writer(out, "horn")
+    w.num("dt", dt)
+    w.num("cases", len(cases))
+    for i, (name, prev, curr, box, pp, cfg, level) in enumerate(cases):
+        k = f"c{i}"
+        w.str(f"{k}_name", name)
+        w.png(f"{k}_prev", prev)
+        w.png(f"{k}_curr", curr)
+        w.mat(f"{k}_box", np.array([box], float))
+        w.mat(f"{k}_pp", np.array([pp], float))
+        w.num(f"{k}_shrink", cfg.shrink)
+        w.num(f"{k}_thr", cfg.grad_threshold_l1)
+        w.num(f"{k}_level", level)
+        if level == 0:
+            found = horn_sums(prev, curr, box, pp, cfg)
+            w.num(f"{k}_has_sums", found is not None)
+            if found is not None:
+                sums, n = found
+                for j, v in enumerate(sums):
+                    w.i64(f"{k}_sum{j}", v)
+                w.i64(f"{k}_n", n)
+                m = horn_solve(sums, n, dt, cfg)
+            else:
+                m = None
+        else:
+            m = horn_at_level(prev, curr, box, pp, level, dt, cfg)
+        w.num(f"{k}_has_m", m is not None)
+        if m is not None:
+            w.num(f"{k}_eta", m.eta)
+            w.num(f"{k}_var", m.var)
+    levels = [(None, (0, 0, 120, 90), 0.0), (1.0, (0, 0, 120, 90), 0.0), (0.2, (0, 0, 120, 90), 30.0), (3.0, (0, 0, 400, 300), 200.0)]
+    w.mat("levels_in", np.array([[np.nan if e is None else e, *b, v] for e, b, v in levels]))
+    w.mat("levels_out", np.array([[choose_level(e, b, v, dt)] for e, b, v in levels], float))
+    w.close()
+
+
+EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale, "horn": export_horn}
 
 
 def main(argv=None) -> None:
