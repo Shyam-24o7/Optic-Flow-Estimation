@@ -72,6 +72,28 @@ def divergence_ttc(m: np.ndarray, box, rotation_div: float, k: int, dt: float,
     return Measurement("divergence", float(div / span), float(var_div / span**2))
 
 
+_LCG_MASK = (1 << 64) - 1
+
+
+def ransac_samples(n: int, iterations: int, seed: int = 0) -> list[tuple[int, int, int]]:
+    """Index triples from a fixed 64-bit LCG (Knuth MMIX constants).
+
+    Deliberately simple so the C++ port and the HLS engine draw exactly the same
+    samples as this reference: numpy's generator cannot be reproduced there.
+    """
+    state = (seed ^ 0x853C49E6748FEA9B) & _LCG_MASK
+    out = []
+    for _ in range(iterations):
+        triple: list[int] = []
+        while len(triple) < 3:
+            state = (state * 6364136223846793005 + 1442695040888963407) & _LCG_MASK
+            value = (state >> 33) % n
+            if value not in triple:
+                triple.append(value)
+        out.append(tuple(triple))
+    return out
+
+
 def robust_mask(flow: np.ndarray, box, principal_point, cfg: DivergenceConfig = DivergenceConfig()) -> np.ndarray:
     """Pixels that follow the dominant affine flow in the box (RANSAC; CPU-side refit).
 
@@ -91,10 +113,9 @@ def robust_mask(flow: np.ndarray, box, principal_point, cfg: DivergenceConfig = 
     s = cfg.ransac_stride
     X = np.stack([np.ones(x[::s, ::s].size), x[::s, ::s].ravel(), y[::s, ::s].ravel()], axis=1)
     U, V = u[::s, ::s].ravel(), v[::s, ::s].ravel()
-    rng = np.random.default_rng(0)
     best, best_count = None, -1
-    for _ in range(cfg.ransac_iterations):
-        idx = rng.choice(len(X), 3, replace=False)
+    for sample in ransac_samples(len(X), cfg.ransac_iterations):
+        idx = list(sample)
         try:
             a = np.linalg.solve(X[idx], U[idx])
             b = np.linalg.solve(X[idx], V[idx])

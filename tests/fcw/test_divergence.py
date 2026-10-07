@@ -48,3 +48,12 @@ def test_robust_refit_ignores_background_pixels():
 def test_empty_box_returns_none():
     assert flow_moments(looming_flow(0.02), (600, 10, 700, 50), PP) is None
     assert divergence_ttc(None, BOX, 0.0, 1, DT) is None
+
+
+def test_ransac_samples_are_reproducible_across_languages():
+    # Fixed 64-bit LCG so the C++ port (and HLS) draw exactly the same RANSAC samples.
+    from collision_avoidance.fcw.divergence import ransac_samples
+    samples = ransac_samples(1000, 4, seed=0)
+    assert samples == ransac_samples(1000, 4, seed=0)
+    assert all(len(set(s)) == 3 and all(0 <= i < 1000 for i in s) for s in samples)
+    assert samples[0] == (502, 397, 989)   # pinned: the C++ test checks the same first triple

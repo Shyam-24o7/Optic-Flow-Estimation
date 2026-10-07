@@ -2,7 +2,6 @@
 #include "fcw/divergence.hpp"
 
 #include <cmath>
-#include <random>
 
 namespace fcw {
 
@@ -103,27 +102,30 @@ cv::Mat robustMask(const cv::Mat& flow, const Box& b, cv::Point2d pp, const Dive
   return r ? ransac(flow, *r, pp, cfg, samples) : cv::Mat::ones(flow.size(), CV_8U);
 }
 
+std::vector<std::array<int, 3>> ransacSamples(int n, int iterations, uint64_t seed) {
+  uint64_t state = seed ^ 0x853C49E6748FEA9BULL;
+  std::vector<std::array<int, 3>> out;
+  for (int it = 0; it < iterations; ++it) {
+    std::array<int, 3> triple{};
+    int filled = 0;
+    while (filled < 3) {
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;  // wraps mod 2^64
+      const int value = static_cast<int>((state >> 33) % static_cast<uint64_t>(n));
+      bool unique = true;
+      for (int q = 0; q < filled; ++q) unique &= triple[q] != value;
+      if (unique) triple[filled++] = value;
+    }
+    out.push_back(triple);
+  }
+  return out;
+}
+
 cv::Mat robustMask(const cv::Mat& flow, const Box& b, cv::Point2d pp, const DivergenceConfig& cfg) {
   const auto r = robustRegion(flow, b);
   if (!r) return cv::Mat::ones(flow.size(), CV_8U);
   const int nx = (r->x2 - r->x1 + cfg.ransac_stride - 1) / cfg.ransac_stride;
   const int ny = (r->y2 - r->y1 + cfg.ransac_stride - 1) / cfg.ransac_stride;
-  const int n = nx * ny;
-  std::mt19937 rng(0);
-  std::vector<std::array<int, 3>> samples;
-  for (int it = 0; it < cfg.ransac_iterations; ++it) {
-    std::array<int, 3> s{};
-    for (int j = 0; j < 3; ++j) {
-      bool unique;
-      do {
-        s[j] = std::uniform_int_distribution<int>(0, n - 1)(rng);
-        unique = true;
-        for (int q = 0; q < j; ++q) unique &= s[q] != s[j];
-      } while (!unique);
-    }
-    samples.push_back(s);
-  }
-  return ransac(flow, *r, pp, cfg, samples);
+  return ransac(flow, *r, pp, cfg, ransacSamples(nx * ny, cfg.ransac_iterations));
 }
 
 }  // namespace fcw

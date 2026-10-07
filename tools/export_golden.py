@@ -304,8 +304,8 @@ def export_divergence(out: Path) -> None:
         bx1, by1 = max(0, int(box[0])), max(0, int(box[1]))
         bx2, by2 = min(W, int(np.ceil(box[2]))), min(H, int(np.ceil(box[3])))
         n_sub = len(np.arange(by1, by2)[::cfg.ransac_stride]) * len(np.arange(bx1, bx2)[::cfg.ransac_stride])
-        rng = np.random.default_rng(0)
-        w.mat(f"{k}_samples", np.array([rng.choice(n_sub, 3, replace=False) for _ in range(cfg.ransac_iterations)], float))
+        from collision_avoidance.fcw.divergence import ransac_samples
+        w.mat(f"{k}_samples", np.array(ransac_samples(n_sub, cfg.ransac_iterations), float))
         mask = robust_mask(flow, box, pp, cfg)
         w.mat(f"{k}_mask", mask[y0:y1, x0:x1].astype(np.uint8))
         robust = divergence_ttc(flow_moments(flow, box, pp, mask, cfg.shrink), box, rot_div, 1, dt, cfg)

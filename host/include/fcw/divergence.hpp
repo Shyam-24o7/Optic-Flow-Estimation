@@ -5,6 +5,7 @@
 #include <opencv2/core.hpp>
 
 #include <array>
+#include <cstdint>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -33,6 +34,8 @@ std::optional<Measurement> divergenceTtc(const std::optional<FlowMoments>& m, co
                                          double dt, const DivergenceConfig& cfg = {});
 // Pixels that follow the dominant affine flow in the box (RANSAC). Returns CV_8U, 1 = keep.
 cv::Mat robustMask(const cv::Mat& flow, const Box& box, cv::Point2d principal, const DivergenceConfig& cfg = {});
+// Index triples from the fixed 64-bit LCG shared with divergence.py (and the HLS engine).
+std::vector<std::array<int, 3>> ransacSamples(int n, int iterations, uint64_t seed = 0);
 // Test hook: RANSAC with given sample triples (indices into the stride-subsampled box pixels).
 cv::Mat robustMask(const cv::Mat& flow, const Box& box, cv::Point2d principal, const DivergenceConfig& cfg,
                    const std::vector<std::array<int, 3>>& samples);

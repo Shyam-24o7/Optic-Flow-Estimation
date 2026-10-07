@@ -41,8 +41,13 @@ TEST(DivergenceParity, EveryCase) {
   }
 }
 
+TEST(DivergenceParity, SharedLcgMatchesPython) {
+  const auto s = fcw::ransacSamples(1000, 4);
+  EXPECT_EQ(s[0], (std::array<int, 3>{502, 397, 989}));  // pinned in tests/fcw/test_divergence.py
+}
+
 TEST(DivergenceParity, ProductionRansacRejectsTheBackgroundLeak) {
-  // Own sampling (std::mt19937), not Python's: must still find the object's flow.
+  // Production path draws its own samples from the shared LCG: identical to Python, so exact.
   golden::File g("divergence");
   const cv::Mat ppm = g.mat("pp"), bm = g.mat("box"), win = g.mat("window");
   const cv::Point2d pp(ppm.at<double>(0, 0), ppm.at<double>(0, 1));
