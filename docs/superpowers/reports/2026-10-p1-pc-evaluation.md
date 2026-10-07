@@ -1,7 +1,7 @@
 # P1 PC evaluation: FCW algorithm core
 
 - **Plan:** `docs/superpowers/plans/2026-10-06-fcw-algorithm-core.md`, Task 13
-- **Status:** partial. Ego-rotation, TTC accuracy, warning lead time and calibration measured; false alarms still to run.
+- **Status:** all PC criteria measured. **False alarms fail badly** (117 per 10 min vs < 1); diagnosis in progress (see below).
 - **Environment:** Windows 11, Python 3.11 venv, torch 2.6.0+cu124 (RTX 4060 Laptop GPU), OpenCV 4.10 DIS flow as the PC stand-in for the board's Vitis LK.
 
 ## Exit criteria (PC half of P1)
@@ -9,9 +9,9 @@
 | Criterion | Target | Measured | Result |
 |---|---|---|---|
 | Yaw-rate RMS vs KITTI OXTS | < 1.0 °/s | **0.681 °/s** (805 frame pairs, 3 drives) | **pass** |
-| Fused median relative TTC error (EvTTC) | ≤ 20% | **12.7%** after calibration (16.2% before) | **pass** |
+| Fused median relative TTC error (EvTTC) | ≤ 20% | **11.5%** with the stale-estimate fix (12.7% after calibration, 16.2% before) | **pass** |
 | Approach events warned before true TTC 2.0 s (EvTTC) | ≥ 90% | **100%** (5 of 5) | **pass** |
-| False alarms on normal driving | < 1 per 10 min | not run | needs dash-cam clips in `data/normal_driving/` |
+| False alarms on normal driving | < 1 per 10 min | **117.2 per 10 min** (352 raises in 30.0 min) | **fail** |
 | Fusion `var_scale` calibration | from EvTTC | looming 0.19, scale 6.61, horn 68.13, divergence 1012.81 | applied |
 
 ## Ego-rotation detail
@@ -47,6 +47,29 @@ Findings:
 - The calibrated factors replace the defaults of 1.0 in `FusionConfig.var_scale`; all 66 FCW tests still pass with them.
 - Coverage is lowest on the "high" (fast-approach) sequences: the target is often too small or too close for a confident estimate at the start and end.
 
+## False alarms (30 min of UK residential driving)
+
+`python eval/false_alarms.py --videos data/normal_driving --fx 200`: 10 front-camera clips from the MIT-licensed `aap9002/UK-Road-DashCam` dataset (4K, 30 FPS, no calibration published; fx = 200 px at 512×384 assumed for a wide dash cam).
+
+| Clip | Raises |
+|---|---|
+| 241220_125301_002 | 35 |
+| 241220_125601_003 | 32 |
+| 241220_125901_004 | 27 |
+| 241220_130201_005 | 36 |
+| 241220_130501_006 | 52 |
+| 241220_130801_007 | 31 |
+| 241220_131102_008 | 38 |
+| 241220_131402_009 | 35 |
+| 241220_131702_010 | 12 |
+| 241220_132302_012 | 54 |
+| **total** | **352 in 30.0 min = 117.2 per 10 min** |
+
+Diagnosis on clip 003 (first 1,500 frames, 19 raises):
+- Every raise is a car (18) or truck (1) and goes straight to CRITICAL. The TTC itself is plausible: these are oncoming cars and parked cars on narrow residential streets, closing fast in the image, and all methods agree.
+- The **course check** is what fails. The heading (FOE x) jumps between 210 and 416 px on a 512 px frame, so the lateral-offset rate ṙ is noise and `r + ṙ·TTC` lands near 0 for cars that are currently 1.5–10 widths to the side (e.g. r = 4.30, r_contact = 0.52).
+- Two real-footage bugs found on the way were fixed in Python and C++ (lost tracks holding warnings; stale predictions driving TTC to 0). They cut critical frames on the first clip from 88 to 67 but did not touch the course-check problem.
+
 ## To finish this report
 
-1. Put 30+ minutes of normal-driving dash-cam footage in `data/normal_driving/`, then `python eval/false_alarms.py --videos data/normal_driving --fx <fx>`.
+1. Fix the course check's heading instability and re-run `eval/false_alarms.py`; re-check EvTTC lead time.
