@@ -19,7 +19,8 @@ class FusionConfig:
     max_consecutive_rejects: int = 5       # then re-initialise from the measurements
     min_eta: float = 0.05                  # below this the object is "not approaching" (TTC > 20 s)
     recent_window_s: float = 0.5           # for "methods that contributed recently"
-    var_scale: dict = field(default_factory=lambda: {m: 1.0 for m in METHODS})  # calibrated per method (P1)
+    # Calibrated on EvTTC (5 car-rear approaches, plan 1 Task 13): mean normalised squared error per method.
+    var_scale: dict = field(default_factory=lambda: {"looming": 0.19, "scale": 6.61, "horn": 68.13, "divergence": 1012.81})
     # Least-squares variances capture noise, not model error. Floor each method's
     # sigma at this fraction of |eta| (plus abs_sigma_floor). Defaults come from the
     # synthetic-scene bias of each method; P1 calibration on EvTTC replaces them.
