@@ -34,6 +34,7 @@ struct FcwConfig {
   std::optional<double> fy;  // none: square pixels
   double default_fps = 30.0;
   int max_ttc_tracks = 16;
+  bool heading_from_foe = false;  // course reference: principal point (default) or the jittery FOE
   TrackerConfig tracker;
   EgoRotationConfig ego;
   ScaleSearchConfig scale;
@@ -101,6 +102,8 @@ class FcwPipeline {
   int index_ = -1;
   std::optional<double> prev_t_;
   std::set<int> on_course_;
+  std::map<int, int> in_path_streak_;
+  void warn(std::vector<ObjectResult>& objects, const std::map<int, ScaleTrack>& tracks);
 };
 
 }  // namespace fcw

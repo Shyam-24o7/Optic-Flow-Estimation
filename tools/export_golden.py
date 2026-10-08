@@ -392,7 +392,7 @@ def export_collision(out: Path) -> None:
         tid = i % 3
         w.mat(f"{k}_in", np.array([[tid, t, *box, classes.index(cls), hx, hy, np.nan if ttc is None else ttc, yaw]]))
         r = checker.update(tid, t, box, cls, hx, hy, ttc, yaw)
-        w.mat(f"{k}_out", np.array([[r.on_course, r.r, np.nan if r.r_contact is None else r.r_contact, r.threshold]], float))
+        w.mat(f"{k}_out", np.array([[r.on_course, r.r, np.nan if r.r_contact is None else r.r_contact, r.threshold, r.in_path]], float))
     machine = WarningFsm()
     w.num("fsm_steps", len(fsm))
     w.mat("fsm_in", np.array([[on, np.nan if t is None else t, np.nan if s is None else s, m] for on, t, s, m in fsm], float))

@@ -37,6 +37,7 @@ class FcwConfig:
     fy: float | None = None          # None: square pixels
     default_fps: float = 30.0        # used for the first dt only
     max_ttc_tracks: int = 16         # tracks that get TTC per frame (PL engine capacity)
+    heading_from_foe: bool = False   # course reference: principal point (default) or the FOE, which jitters on real roads
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
     ego: EgoRotationConfig = field(default_factory=EgoRotationConfig)
     scale: ScaleSearchConfig = field(default_factory=ScaleSearchConfig)
@@ -111,6 +112,7 @@ class FcwPipeline:
         self._index = -1
         self._prev_t: float | None = None
         self._on_course: set[int] = set()
+        self._in_path_streak: dict[int, int] = {}
 
     def process(self, frame_bgr: np.ndarray, t: float) -> FcwFrame:
         timings: dict[str, float] = {}
@@ -137,18 +139,21 @@ class FcwPipeline:
         prev_boxes = [tr.bbox for tr in self.tracker.tracks.values()]
         tracks = self.tracker.update(detections, dt, self._index)
         ego = self.ego.update(flow, prev_boxes) if prev_gray is not None else EgoMotion.identity()
-        heading = tuple(ego.foe) if ego.foe is not None else self.pp
+        heading = tuple(ego.foe) if self.cfg.heading_from_foe and ego.foe is not None else self.pp
         yaw_rate = float(ego.rvec[1]) / dt
         self.ring.append((self._index, t, gray))
         timings["track_ego"] = (time.perf_counter() - mark) * 1e3
 
         mark = time.perf_counter()
-        objects = [self._assess(track, gray, prev_gray, flow, ego, heading, yaw_rate, t, dt) for track in self._select(tracks)]
+        selected = self._select(tracks)
+        objects = [self._assess(track, gray, prev_gray, flow, ego, heading, yaw_rate, t, dt) for track in selected]
+        self._warn(objects, {tr.id: tr for tr in selected})
         live = list(tracks)
         self.fusion.retain(live)
         self.course.retain(live)
         self.fsms = {tid: f for tid, f in self.fsms.items() if tid in tracks}
-        self._on_course = {o.track_id for o in objects if o.course and o.course.on_course}
+        self._in_path_streak = {tid: n for tid, n in self._in_path_streak.items() if tid in tracks}
+        self._on_course = {o.track_id for o in objects if o.course and o.course.in_path}
         timings["ttc"] = (time.perf_counter() - mark) * 1e3
         timings["total"] = (time.perf_counter() - t0) * 1e3
         return FcwFrame(self._index, t, frame, flow, ego, heading, objects, timings, dt)
@@ -193,8 +198,22 @@ class FcwPipeline:
         estimate = self.fusion.update(track.id, t, dt, measurements)
         ttc = estimate.ttc_s if estimate else None
         course = self.course.update(track.id, t, box, track.class_name, heading[0], heading[1], ttc, yaw_rate)
-        fsm = self.fsms.setdefault(track.id, WarningFsm(cfg.warning))
-        # A lost track is a prediction, not an observation: it may hold nothing and raise nothing.
-        level = fsm.step(course.on_course and not track.lost, ttc, estimate.sigma_ttc_s if estimate else None,
-                         len(estimate.recent_methods) if estimate else 0)
-        return ObjectResult(track.id, box, track.class_name, estimate, course, level, measurements)
+        return ObjectResult(track.id, box, track.class_name, estimate, course, Level.NONE, measurements)
+
+    def _warn(self, objects: list[ObjectResult], tracks: dict[int, ScaleTrack]) -> None:
+        """Only the lead vehicle may warn: the nearest object in our path, in path for a few frames.
+
+        A lost track is a prediction, not an observation: it is never the lead.
+        """
+        for o in objects:
+            in_path = o.course is not None and o.course.in_path and not tracks[o.track_id].lost
+            self._in_path_streak[o.track_id] = self._in_path_streak.get(o.track_id, 0) + 1 if in_path else 0
+        candidates = [o for o in objects if self._in_path_streak[o.track_id] > 0]
+        # Nearest = largest metric width in pixels: distance is proportional to W_obj / w.
+        lead = min(candidates, key=lambda o: o.course.width_m / max(o.bbox[2] - o.bbox[0], 1.0), default=None)
+        for o in objects:
+            e = o.estimate
+            ok = (lead is not None and o.track_id == lead.track_id and o.course.on_course
+                  and self._in_path_streak[o.track_id] >= self.cfg.course.in_path_frames)
+            fsm = self.fsms.setdefault(o.track_id, WarningFsm(self.cfg.warning))
+            o.level = fsm.step(ok, e.ttc_s if e else None, e.sigma_ttc_s if e else None, len(e.recent_methods) if e else 0)

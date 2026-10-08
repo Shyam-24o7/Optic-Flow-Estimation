@@ -78,7 +78,7 @@ FcwFrame FcwPipeline::process(const cv::Mat& frame_bgr, double t) {
   for (const auto& [id, tr] : tracker_.tracks()) prev_boxes.push_back(tr.bbox());
   const auto& tracks = tracker_.update(detections, dt, index_);
   out.ego = prev_gray.empty() ? EgoMotion{} : ego_.update(out.flow, prev_boxes);
-  out.heading = out.ego.foe ? *out.ego.foe : pp_;
+  out.heading = cfg_.heading_from_foe && out.ego.foe ? *out.ego.foe : pp_;
   const double yaw_rate = out.ego.rvec[1] / dt;
   ring_.emplace_back(index_, t, gray);
   if (static_cast<int>(ring_.size()) > kHistory) ring_.pop_front();
@@ -87,14 +87,16 @@ FcwFrame FcwPipeline::process(const cv::Mat& frame_bgr, double t) {
   mark = std::chrono::steady_clock::now();
   for (const ScaleTrack* tr : select(tracks))
     out.objects.push_back(assess(*tr, gray, prev_gray, out.flow, out.ego, out.heading, yaw_rate, t, dt));
+  warn(out.objects, tracks);
   std::vector<int> live;
   for (const auto& [id, tr] : tracks) live.push_back(id);
   fusion_.retain(live);
   course_.retain(live);
   for (auto it = fsms_.begin(); it != fsms_.end();) it = tracks.count(it->first) ? std::next(it) : fsms_.erase(it);
+  for (auto it = in_path_streak_.begin(); it != in_path_streak_.end();) it = tracks.count(it->first) ? std::next(it) : in_path_streak_.erase(it);
   on_course_.clear();
   for (const auto& o : out.objects)
-    if (o.course && o.course->on_course) on_course_.insert(o.track_id);
+    if (o.course && o.course->in_path) on_course_.insert(o.track_id);
   out.timings_ms["ttc"] = msSince(mark);
   out.timings_ms["total"] = msSince(t0);
 
@@ -152,11 +154,29 @@ ObjectResult FcwPipeline::assess(const ScaleTrack& track, const cv::Mat& gray, c
   res.estimate = fusion_.update(track.id, t, dt, res.measurements);
   const std::optional<double> ttc = res.estimate ? res.estimate->ttc_s : std::nullopt;
   res.course = course_.update(track.id, t, box, track.cls, heading.x, heading.y, ttc, yaw_rate);
-  WarningFsm& fsm = fsms_.try_emplace(track.id, cfg_.warning).first->second;
-  // A lost track is a prediction, not an observation: it may hold nothing and raise nothing.
-  res.level = fsm.step(res.course->on_course && !track.lost, ttc, res.estimate ? res.estimate->sigma_ttc_s : std::nullopt,
-                       res.estimate ? static_cast<int>(res.estimate->recent_methods.size()) : 0);
   return res;
+}
+
+// Only the lead vehicle may warn: the nearest object in our path, in path for a few frames.
+// A lost track is a prediction, not an observation: it is never the lead.
+void FcwPipeline::warn(std::vector<ObjectResult>& objects, const std::map<int, ScaleTrack>& tracks) {
+  const ObjectResult* lead = nullptr;
+  double lead_dist = 0;
+  for (auto& o : objects) {
+    const bool in_path = o.course && o.course->in_path && !tracks.at(o.track_id).lost;
+    int& streak = in_path_streak_[o.track_id];
+    streak = in_path ? streak + 1 : 0;
+    if (!streak) continue;
+    const double dist = *o.course->width_m / std::max(o.bbox.x2 - o.bbox.x1, 1.0);  // distance ~ W_obj / w
+    if (!lead || dist < lead_dist) { lead = &o; lead_dist = dist; }
+  }
+  for (auto& o : objects) {
+    const bool ok = lead && o.track_id == lead->track_id && o.course->on_course &&
+                    in_path_streak_[o.track_id] >= cfg_.course.in_path_frames;
+    WarningFsm& fsm = fsms_.try_emplace(o.track_id, cfg_.warning).first->second;
+    o.level = fsm.step(ok, o.estimate ? o.estimate->ttc_s : std::nullopt, o.estimate ? o.estimate->sigma_ttc_s : std::nullopt,
+                       o.estimate ? static_cast<int>(o.estimate->recent_methods.size()) : 0);
+  }
 }
 
 }  // namespace fcw

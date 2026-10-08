@@ -73,3 +73,10 @@ def test_warning_clears_when_object_leaves_path():
     fsm = WarningFsm()
     steps(fsm, [(True, 2.5, 0.1, 2)] * 3)
     assert steps(fsm, [(False, 2.5, 0.1, 2)] * 10)[-1] == Level.NONE
+
+
+@pytest.mark.parametrize("lateral_m, expected", [(0.0, True), (0.8, True), (1.0, False), (2.4, False)])
+def test_in_path_needs_half_our_width_of_overlap(lateral_m, expected):
+    # Car (1.8 m) at 20 m; our car is 1.8 m wide, so half-overlap means |X| <= 0.9 m.
+    box = (256 + 500 * (lateral_m - 0.9) / 20, 200, 256 + 500 * (lateral_m + 0.9) / 20, 240)
+    assert CourseChecker().update(1, 0.0, box, "car", 256.0, 192.0, 2.0, 0.0).in_path is expected

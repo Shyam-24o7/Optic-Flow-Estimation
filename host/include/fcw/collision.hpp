@@ -19,6 +19,8 @@ struct CourseConfig {
   double history_s = 0.5;
   double turn_yaw_rate_rps = 3.0 * 3.14159265358979323846 / 180.0;
   double turn_widen = 1.5;
+  double min_overlap = 0.5;  // of the narrower of our width and the object's
+  int in_path_frames = 3;    // consecutive in-path frames before the lead may warn
 };
 
 struct CourseResult {
@@ -26,6 +28,8 @@ struct CourseResult {
   double r = 0;
   std::optional<double> r_contact;
   double threshold = 0;
+  bool in_path = false;               // now: overlaps our width enough to be the lead vehicle
+  std::optional<double> width_m;      // class width prior used
 };
 
 class CourseChecker {

@@ -84,6 +84,7 @@ TEST(CollisionParity, CourseCheckSequence) {
     EXPECT_NEAR(res.r, out.at<double>(0, 1), 1e-12) << k;
     expectNearOrNan(res.r_contact ? *res.r_contact : NAN, out.at<double>(0, 2), 1e-9, k + " r_contact");
     EXPECT_NEAR(res.threshold, out.at<double>(0, 3), 1e-12) << k;
+    EXPECT_EQ(res.in_path, out.at<double>(0, 4) != 0) << k;
   }
 }
 

@@ -1,8 +1,14 @@
 """Is a tracked object on our path, and what warning level does it earn?
 
-Course check: the lateral offset in object widths, r = (x_c - x_F) / w, equals
+Course check: the lateral offset in object widths, r = (x_c - x_ref) / w, equals
 X / W_obj and does not depend on distance. Extrapolated to the moment of
 contact, |r + r_dot * TTC| below half the combined width means a collision.
+
+In path: the object's lateral extent [X - W_obj/2, X + W_obj/2] must overlap our
+width [-W_ego/2, W_ego/2] by at least min_overlap of the narrower one. Only the
+nearest in-path object (the lead vehicle) may warn; see pipeline.py. Real streets
+put parked and oncoming cars 0.5-1 m beside our path, closer than box noise lets
+the at-contact test resolve, which is why a strict "directly ahead" test gates it.
 
 Warning levels are anchored to NHTSA's FCW test (warning by TTC 2.0-2.4 s).
 """
@@ -24,14 +30,18 @@ class CourseConfig:
     history_s: float = 0.5
     turn_yaw_rate_rps: float = float(np.radians(3.0))
     turn_widen: float = 1.5
+    min_overlap: float = 0.5        # of the narrower of our width and the object's
+    in_path_frames: int = 3         # consecutive in-path frames before the lead may warn
 
 
 @dataclass(frozen=True)
 class CourseResult:
-    on_course: bool
+    on_course: bool                 # at the moment of contact
     r: float
     r_contact: float | None
     threshold: float
+    in_path: bool = False           # now: overlaps our width enough to be the lead vehicle
+    width_m: float | None = None    # class width prior used
 
 
 class CourseChecker:
@@ -50,18 +60,21 @@ class CourseChecker:
         width_m = self.cfg.class_width_m.get(class_name)
         if width_m is None:
             return CourseResult(False, r, None, 0.0)
+        lateral = r * width_m
+        overlap = min(lateral + width_m / 2, self.cfg.ego_width_m / 2) - max(lateral - width_m / 2, -self.cfg.ego_width_m / 2)
+        in_path = y2 >= horizon_y and overlap >= self.cfg.min_overlap * min(width_m, self.cfg.ego_width_m)
         threshold = 0.5 * (1.0 + (self.cfg.ego_width_m + self.cfg.margin_m) / width_m)
         if abs(yaw_rate_rps) > self.cfg.turn_yaw_rate_rps:
             threshold *= self.cfg.turn_widen
         if y2 < horizon_y or ttc_s is None:
-            return CourseResult(False, r, None, threshold)
+            return CourseResult(False, r, None, threshold, in_path, width_m)
         r_dot = 0.0
         ts, rs = np.array(hist).T
         if len(hist) >= 3 and ts[-1] - ts[0] > 1e-3:  # needs a real time span (repeated timestamps happen)
             tc = ts - ts.mean()
             r_dot = float((tc * (rs - rs.mean())).sum() / (tc * tc).sum())
         r_contact = r + r_dot * ttc_s
-        return CourseResult(abs(r_contact) < threshold, r, r_contact, threshold)
+        return CourseResult(abs(r_contact) < threshold, r, r_contact, threshold, in_path, width_m)
 
     def retain(self, track_ids) -> None:
         keep = set(track_ids)

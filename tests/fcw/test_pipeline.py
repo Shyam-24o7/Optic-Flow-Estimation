@@ -112,3 +112,35 @@ def test_lost_track_cannot_escalate_or_hold_a_warning():
         levels.append(pipeline.process(cv2.cvtColor(scene.frames[current], cv2.COLOR_GRAY2BGR), current / 30).level)
     assert Level.CRITICAL not in levels[40:]   # no escalation from extrapolated predictions
     assert levels[-1] == Level.NONE            # cleared while the track is lost, before it is deleted
+
+
+def _shifted(box, dx_widths=0.0, scale=1.0):
+    x1, y1, x2, y2 = box
+    w, h, cx, cy = x2 - x1, y2 - y1, (x1 + x2) / 2 + dx_widths * (x2 - x1), (y1 + y2) / 2
+    return np.array([cx - scale * w / 2, cy - scale * h / 2, cx + scale * w / 2, cy + scale * h / 2])
+
+
+def _levels_per_track(scene, detections_for):
+    pipeline = FcwPipeline(FcwConfig(), lambda f: detections_for(current), DisFlow())
+    per_track = {}
+    for current in range(len(scene.frames)):
+        result = pipeline.process(cv2.cvtColor(scene.frames[current], cv2.COLOR_GRAY2BGR), current / 30)
+        for o in result.objects:
+            per_track.setdefault(o.track_id, []).append(o.level)
+    return per_track
+
+
+def test_car_beside_our_path_never_warns():
+    # 1.6 m off centre (less than one object width): closing fast, but beside us, not ahead.
+    scene = synth.render_scene(synth.SceneConfig(n_frames=70, z0_m=45.0, closing_speed_mps=15.0))
+    levels = _levels_per_track(scene, lambda i: [Detection(_shifted(scene.boxes[i], 1.6 / 1.8), "car", 0.9)])
+    assert all(lv == Level.NONE for track in levels.values() for lv in track)
+
+
+def test_only_the_nearest_object_in_our_path_can_warn():
+    # A farther car straight ahead (half the image size) closes at the same rate as the lead.
+    scene = synth.render_scene(synth.SceneConfig(n_frames=70, z0_m=45.0, closing_speed_mps=15.0))
+    levels = _levels_per_track(scene, lambda i: [Detection(scene.boxes[i], "car", 0.9), Detection(_shifted(scene.boxes[i], 0.0, 0.5), "car", 0.9)])
+    lead, behind = levels[0], levels[1]
+    assert Level.WARNING in lead or Level.CRITICAL in lead
+    assert all(lv == Level.NONE for lv in behind)

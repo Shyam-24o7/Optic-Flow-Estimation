@@ -15,6 +15,10 @@ CourseResult CourseChecker::update(int track_id, double t, const Box& b, const s
   while (!hist.empty() && t - hist.front().first > cfg_.history_s) hist.pop_front();
   const auto width = cfg_.class_width_m.find(cls);
   if (width == cfg_.class_width_m.end()) return res;
+  res.width_m = width->second;
+  const double lateral = res.r * width->second;
+  const double overlap = std::min(lateral + width->second / 2, cfg_.ego_width_m / 2) - std::max(lateral - width->second / 2, -cfg_.ego_width_m / 2);
+  res.in_path = b.y2 >= horizon_y && overlap >= cfg_.min_overlap * std::min(width->second, cfg_.ego_width_m);
   res.threshold = 0.5 * (1.0 + (cfg_.ego_width_m + cfg_.margin_m) / width->second);
   if (std::abs(yaw_rate_rps) > cfg_.turn_yaw_rate_rps) res.threshold *= cfg_.turn_widen;
   if (b.y2 < horizon_y || !ttc_s) return res;
