@@ -37,7 +37,7 @@ class FcwConfig:
     fy: float | None = None          # None: square pixels
     default_fps: float = 30.0        # used for the first dt only
     max_ttc_tracks: int = 16         # tracks that get TTC per frame (PL engine capacity)
-    heading_from_foe: bool = False   # course reference: principal point (default) or the FOE, which jitters on real roads
+    heading_from_foe: bool = True    # course reference: smoothed FOE (follows bends); False = principal point
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
     ego: EgoRotationConfig = field(default_factory=EgoRotationConfig)
     scale: ScaleSearchConfig = field(default_factory=ScaleSearchConfig)

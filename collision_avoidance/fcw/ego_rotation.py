@@ -25,7 +25,7 @@ class EgoRotationConfig:
     max_jump_rad: float = np.radians(1.0)  # per-frame change of rotation angle accepted
     min_points: int = 30
     min_foe_tz: float = 0.5           # |t_z| of the unit translation needed for a usable FOE
-    foe_smoothing: float = 0.5        # EMA weight of the newest FOE
+    foe_smoothing: float = 0.05       # EMA weight of the newest FOE (~0.7 s): follows bends, not per-frame jitter
 
 
 @dataclass

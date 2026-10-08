@@ -24,7 +24,7 @@ struct EgoRotationConfig {
   double max_jump_rad = 1.0 * CV_PI / 180.0;
   int min_points = 30;
   double min_foe_tz = 0.5;
-  double foe_smoothing = 0.5;
+  double foe_smoothing = 0.05;  // ~0.7 s: follows bends, not per-frame jitter
 };
 
 struct EgoMotion {

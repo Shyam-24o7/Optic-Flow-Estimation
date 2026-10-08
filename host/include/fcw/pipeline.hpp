@@ -34,7 +34,7 @@ struct FcwConfig {
   std::optional<double> fy;  // none: square pixels
   double default_fps = 30.0;
   int max_ttc_tracks = 16;
-  bool heading_from_foe = false;  // course reference: principal point (default) or the jittery FOE
+  bool heading_from_foe = true;  // course reference: smoothed FOE (follows bends); false = principal point
   TrackerConfig tracker;
   EgoRotationConfig ego;
   ScaleSearchConfig scale;
