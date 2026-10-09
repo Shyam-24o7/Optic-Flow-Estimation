@@ -1,7 +1,7 @@
 # P1 PC evaluation: FCW algorithm core
 
 - **Plan:** `docs/superpowers/plans/2026-10-06-fcw-algorithm-core.md`, Task 13
-- **Status:** all PC criteria measured. **False alarms fail badly** (117 per 10 min vs < 1); diagnosis in progress (see below).
+- **Status:** all PC criteria measured. Three pass; **false alarms still fail** (17 per 10 min vs < 1, down from 117 after the lead-vehicle change).
 - **Environment:** Windows 11, Python 3.11 venv, torch 2.6.0+cu124 (RTX 4060 Laptop GPU), OpenCV 4.10 DIS flow as the PC stand-in for the board's Vitis LK.
 
 ## Exit criteria (PC half of P1)
@@ -11,7 +11,7 @@
 | Yaw-rate RMS vs KITTI OXTS | < 1.0 °/s | **0.681 °/s** (805 frame pairs, 3 drives) | **pass** |
 | Fused median relative TTC error (EvTTC) | ≤ 20% | **11.5%** with the stale-estimate fix (12.7% after calibration, 16.2% before) | **pass** |
 | Approach events warned before true TTC 2.0 s (EvTTC) | ≥ 90% | **100%** (5 of 5) | **pass** |
-| False alarms on normal driving | < 1 per 10 min | **117.2 per 10 min** (352 raises in 30.0 min) | **fail** |
+| False alarms on normal driving | < 1 per 10 min | **17.0 per 10 min** (51 raises in 30.0 min); 117.2 before the lead-vehicle change | **fail** |
 | Fusion `var_scale` calibration | from EvTTC | looming 0.19, scale 6.61, horn 68.13, divergence 1012.81 | applied |
 
 ## Ego-rotation detail
@@ -76,6 +76,33 @@ Calibrated control: the same pipeline on the three KITTI raw drives (calibrated 
 
 What the remaining warnings are: parked cars along residential streets and oncoming cars, passed with roughly 0.5–1 m clearance. Their TTC to the object's plane really is about 1 s; the system cannot place them laterally precisely enough to tell "passing close" from "on our path", because the corridor test has only a 0.3–0.8 m margin and box/heading noise exceeds it. This needs a design change in how the path is defined (see the recommendations in the conversation of 2026-10-08), not a threshold tweak.
 
+## Lead-vehicle change (2026-10-09)
+
+Only the nearest object that overlaps at least half our width (the lead vehicle) may warn, after 3 consecutive in-path frames, with a heading smoothed over ~0.7 s.
+
+| Data | Before | After |
+|---|---|---|
+| Dash-cam clips, 30 min | 352 raises, 117.2 per 10 min | **51 raises, 17.0 per 10 min** |
+| — per clip | 35 / 32 / 27 / 36 / 52 / 31 / 38 / 35 / 12 / 54 | 5 / 8 / 3 / 6 / 5 / 12 / 5 / 4 / 3 / 0 |
+| KITTI calibrated drives | 79 per 10 min | 7.2 per 10 min |
+| EvTTC fused TTC error | 11.5% | 11.5% |
+| EvTTC warned by true TTC 2.0 s | 5 / 5 | 5 / 5 |
+
+The change removed 85% of false alarms without costing a single real warning. The remaining raises still need work (next candidates: estimating our own speed to separate oncoming from leading traffic, and per-clip review of what the 51 are).
+
+## Perception cost (C++, laptop CPU in WSL, 300 frames of 4K dash cam)
+
+| Step | Before | After speed-up |
+|---|---|---|
+| ego-rotation | 19.65 ms | **7.89 ms** |
+| divergence | 1.04 | 1.06 |
+| scale search | 0.39 | 0.49 |
+| Horn | 0.32 | 0.26 |
+| everything else | < 0.1 | < 0.1 |
+| **total** | **22.0 ms** | **10.3 ms** |
+
+Ego-rotation dominated: `recoverPose` triangulated every inlier to pick one of four poses. With 64 spread inliers and RANSAC capped at 200 iterations, KITTI yaw error is unchanged per drive. On the KV260's Cortex-A53 (roughly 3–6× slower per thread) this projects to about 30–60 ms per frame, i.e. about 15–30 FPS, to be measured on the board. Because Horn costs only ~0.3 ms here, the FPGA Horn engine (plan 3) would save little CPU time on this footage; its value is headroom for more objects and higher resolution.
+
 ## To finish this report
 
-1. Fix the course check's heading instability and re-run `eval/false_alarms.py`; re-check EvTTC lead time.
+1. Bring false alarms below 1 per 10 min (see the lead-vehicle section).
