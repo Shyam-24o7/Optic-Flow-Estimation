@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 330" width="900" height="330" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/>
+    </marker>
+  </defs>
+  <rect width="900" height="330" fill="#ffffff"/>
+  <text x="30" y="34" font-size="19" font-weight="700" fill="#111827">Four-thread runtime: three frames in flight</text>
+  <text x="30" y="54" font-size="12.5" fill="#4b5563">bounded queues between threads · frames are dropped only at capture (oldest first), so flow always pairs consecutive frames</text>
+
+  <!-- grid -->
+  <g stroke="#e5e7eb" stroke-width="1">
+    <path d="M180,70 V262"/><path d="M320,70 V262"/><path d="M460,70 V262"/><path d="M600,70 V262"/><path d="M740,70 V262"/><path d="M880,70 V262"/>
+  </g>
+  <g font-size="11" fill="#6b7280" text-anchor="middle">
+    <text x="180" y="82">0</text><text x="320" y="82">33 ms</text><text x="460" y="82">67 ms</text><text x="600" y="82">100 ms</text><text x="740" y="82">133 ms</text><text x="880" y="82">167 ms</text>
+  </g>
+
+  <!-- row labels -->
+  <g font-size="12.5" fill="#111827">
+    <text x="30" y="113" font-weight="700">T1 capture</text>
+    <text x="30" y="157" font-weight="700">T2 DPU + LK</text>
+    <text x="30" y="201" font-weight="700">T3 perception</text>
+    <text x="30" y="245" font-weight="700">T4 render</text>
+  </g>
+
+  <!-- frame N (blue), N+1 (green), N+2 (amber), N+3 (purple) -->
+  <g font-size="11.5" font-weight="700" fill="#ffffff" text-anchor="middle">
+    <rect x="182" y="94" width="40" height="28" rx="4" fill="#2563eb"/><text x="202" y="113">N</text>
+    <rect x="322" y="94" width="40" height="28" rx="4" fill="#059669"/><text x="342" y="113">N+1</text>
+    <rect x="462" y="94" width="40" height="28" rx="4" fill="#d97706"/><text x="482" y="113">N+2</text>
+    <rect x="602" y="94" width="40" height="28" rx="4" fill="#7c3aed"/><text x="622" y="113">N+3</text>
+    <rect x="742" y="94" width="40" height="28" rx="4" fill="#6b7280"/><text x="762" y="113">N+4</text>
+
+    <rect x="322" y="138" width="110" height="28" rx="4" fill="#2563eb"/><text x="377" y="157">N</text>
+    <rect x="462" y="138" width="110" height="28" rx="4" fill="#059669"/><text x="517" y="157">N+1</text>
+    <rect x="602" y="138" width="110" height="28" rx="4" fill="#d97706"/><text x="657" y="157">N+2</text>
+    <rect x="742" y="138" width="110" height="28" rx="4" fill="#7c3aed"/><text x="797" y="157">N+3</text>
+
+    <rect x="462" y="182" width="128" height="28" rx="4" fill="#2563eb"/><text x="526" y="201">N</text>
+    <rect x="602" y="182" width="128" height="28" rx="4" fill="#059669"/><text x="666" y="201">N+1</text>
+    <rect x="742" y="182" width="128" height="28" rx="4" fill="#d97706"/><text x="806" y="201">N+2</text>
+
+    <rect x="602" y="226" width="40" height="28" rx="4" fill="#2563eb"/><text x="622" y="245">N</text>
+    <rect x="742" y="226" width="40" height="28" rx="4" fill="#059669"/><text x="762" y="245">N+1</text>
+  </g>
+
+  <path d="M182,284 H640" stroke="#2563eb" stroke-width="1.6" fill="none" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="411" y="302" text-anchor="middle" font-size="12" fill="#1e40af">frame N: capture → warning on screen ≈ 3–4 frame periods (target &lt; 100 ms)</text>
+  <text x="30" y="322" font-size="11" fill="#6b7280">Schematic. Measured on a laptop CPU: T3 = 11.2 ms per frame. On the KV260's Cortex-A53 this projects to roughly 35–45 ms (≈ 15–30 FPS); not yet measured on the board.</text>
+</svg>

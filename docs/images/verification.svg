@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/>
+    </marker>
+  </defs>
+  <rect width="900" height="400" fill="#ffffff"/>
+  <text x="30" y="34" font-size="19" font-weight="700" fill="#111827">How correctness is carried from Python to C++ to hardware</text>
+  <text x="30" y="54" font-size="12.5" fill="#4b5563">the Python package is the reference; every port is checked against vectors it exports, frame by frame</text>
+
+  <g text-anchor="middle">
+    <rect x="20" y="78" width="210" height="128" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+    <text x="125" y="102" font-size="13.5" font-weight="700" fill="#92400e">Python reference</text>
+    <text x="125" y="124" font-size="11.5" fill="#374151">collision_avoidance/fcw</text>
+    <text x="125" y="144" font-size="11.5" fill="#374151">synthetic scenes with exact</text>
+    <text x="125" y="161" font-size="11.5" fill="#374151">ground-truth TTC and rotation</text>
+    <text x="125" y="186" font-size="12" font-weight="700" fill="#047857">pytest: 91 FCW tests ✓</text>
+
+    <rect x="270" y="78" width="200" height="128" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.5"/>
+    <text x="370" y="102" font-size="13.5" font-weight="700" fill="#374151">Golden vectors</text>
+    <text x="370" y="124" font-size="11.5" fill="#374151">tools/export_golden.py</text>
+    <text x="370" y="144" font-size="11.5" fill="#374151">OpenCV FileStorage</text>
+    <text x="370" y="161" font-size="11.5" fill="#374151">inputs + expected outputs</text>
+    <text x="370" y="178" font-size="11.5" fill="#374151">shared 64-bit LCG makes</text>
+    <text x="370" y="195" font-size="11.5" fill="#374151">RANSAC identical in both</text>
+
+    <rect x="510" y="78" width="370" height="58" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="695" y="101" font-size="13.5" font-weight="700" fill="#1e40af">C++ host (host/)</text>
+    <text x="695" y="122" font-size="11.5" fill="#374151">GoogleTest parity per module + whole pipeline: <tspan font-weight="700" fill="#047857">38 tests ✓</tspan></text>
+
+    <rect x="510" y="148" width="370" height="58" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+    <text x="695" y="171" font-size="13.5" font-weight="700" fill="#065f46">HLS engine (hls/ttc_engine)</text>
+    <text x="695" y="192" font-size="11.5" fill="#374151">C-simulation, integer sums bit-exact: <tspan font-weight="700" fill="#047857">5 / 5 cases ✓</tspan></text>
+
+    <!-- real data -->
+    <rect x="20" y="246" width="860" height="138" rx="10" fill="#fafafa" stroke="#d1d5db"/>
+    <text x="450" y="270" font-size="13.5" font-weight="700" fill="#111827">Real-data evaluation (eval/)</text>
+
+    <rect x="40" y="284" width="260" height="84" rx="8" fill="#ffffff" stroke="#9ca3af"/>
+    <text x="170" y="306" font-size="13" font-weight="700" fill="#111827">KITTI raw (3 drives)</text>
+    <text x="170" y="326" font-size="11.5" fill="#374151">ego-rotation vs GPS/IMU yaw rate</text>
+    <text x="170" y="344" font-size="11.5" fill="#374151">+ false alarms with a calibrated camera</text>
+    <text x="170" y="360" font-size="11.5" fill="#6b7280">kitti_yaw.py</text>
+
+    <rect x="320" y="284" width="260" height="84" rx="8" fill="#ffffff" stroke="#9ca3af"/>
+    <text x="450" y="306" font-size="13" font-weight="700" fill="#111827">EvTTC (5 approaches)</text>
+    <text x="450" y="326" font-size="11.5" fill="#374151">TTC error vs ground truth</text>
+    <text x="450" y="344" font-size="11.5" fill="#374151">warned before true TTC 2.0 s?</text>
+    <text x="450" y="360" font-size="11.5" fill="#6b7280">evttc_fcw.py</text>
+
+    <rect x="600" y="284" width="260" height="84" rx="8" fill="#ffffff" stroke="#9ca3af"/>
+    <text x="730" y="306" font-size="13" font-weight="700" fill="#111827">UK dash cam (30 min)</text>
+    <text x="730" y="326" font-size="11.5" fill="#374151">normal driving: every warning</text>
+    <text x="730" y="344" font-size="11.5" fill="#374151">is a false alarm</text>
+    <text x="730" y="360" font-size="11.5" fill="#6b7280">false_alarms.py · review_warnings.py</text>
+  </g>
+
+  <g stroke="#4b5563" stroke-width="1.4" fill="none" marker-end="url(#a)">
+    <path d="M230,142 H268"/>
+    <path d="M470,120 L508,107"/>
+    <path d="M470,164 L508,177"/>
+    <path d="M125,206 V244"/>
+  </g>
+</svg>

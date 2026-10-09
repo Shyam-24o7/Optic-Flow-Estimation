@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" width="900" height="520" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<rect width="900" height="520" fill="#ffffff"/>
+<text x="20" y="34" font-size="19" font-weight="700" fill="#111827">Results on PC (board run pending)</text>
+<rect x="20" y="54" width="200" height="104" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+<text x="120" y="96" text-anchor="middle" font-size="28" font-weight="700" fill="#065f46">0.681 °/s</text>
+<text x="120" y="122" text-anchor="middle" font-size="12.5" fill="#111827">yaw-rate RMS vs GPS/IMU</text>
+<text x="120" y="142" text-anchor="middle" font-size="11.5" fill="#4b5563">target &lt; 1.0 · KITTI ✓</text>
+<rect x="240" y="54" width="200" height="104" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+<text x="340" y="96" text-anchor="middle" font-size="28" font-weight="700" fill="#065f46">11.5 %</text>
+<text x="340" y="122" text-anchor="middle" font-size="12.5" fill="#111827">fused TTC error (median)</text>
+<text x="340" y="142" text-anchor="middle" font-size="11.5" fill="#4b5563">target ≤ 20 % · EvTTC ✓</text>
+<rect x="460" y="54" width="200" height="104" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+<text x="560" y="96" text-anchor="middle" font-size="28" font-weight="700" fill="#065f46">5 / 5</text>
+<text x="560" y="122" text-anchor="middle" font-size="12.5" fill="#111827">warned before true TTC 2.0 s</text>
+<text x="560" y="142" text-anchor="middle" font-size="11.5" fill="#4b5563">target ≥ 90 % · EvTTC ✓</text>
+<rect x="680" y="54" width="200" height="104" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+<text x="780" y="96" text-anchor="middle" font-size="28" font-weight="700" fill="#065f46">0.67</text>
+<text x="780" y="122" text-anchor="middle" font-size="12.5" fill="#111827">false alarms per 10 min</text>
+<text x="780" y="142" text-anchor="middle" font-size="11.5" fill="#4b5563">lead + oncoming rules (measured)</text>
+<rect x="20" y="182" width="450" height="320" rx="10" fill="#fafafa" stroke="#d1d5db"/>
+<text x="36" y="206" font-size="13.5" font-weight="700" fill="#111827">False alarms per 10 min of normal driving</text>
+<text x="36" y="224" font-size="11.5" fill="#4b5563">log scale · each step fixed a failure found by reviewing every warning</text>
+<text x="210" y="258" text-anchor="end" font-size="12" fill="#111827">course check only</text>
+<rect x="222.0" y="244" width="208.7" height="20" rx="3" fill="#9ca3af"/>
+<rect x="433.7" y="246" width="43.5" height="17" fill="#fafafa"/>
+<text x="436.7" y="259" font-size="12" font-weight="700" fill="#111827">117.2</text>
+<text x="210" y="297" text-anchor="end" font-size="12" fill="#111827">+ lead-vehicle rule</text>
+<rect x="222.0" y="283" width="151.7" height="20" rx="3" fill="#9ca3af"/>
+<rect x="376.7" y="285" width="21.0" height="17" fill="#fafafa"/>
+<text x="379.7" y="298" font-size="12" font-weight="700" fill="#111827">17</text>
+<text x="210" y="336" text-anchor="end" font-size="12" fill="#111827">+ oncoming test (κ)</text>
+<rect x="222.0" y="322" width="56.2" height="20" rx="3" fill="#9ca3af"/>
+<rect x="281.2" y="324" width="36.0" height="17" fill="#fafafa"/>
+<text x="284.2" y="337" font-size="12" font-weight="700" fill="#111827">0.67</text>
+<text x="210" y="375" text-anchor="end" font-size="12" fill="#111827">+ predicted entry, first try</text>
+<rect x="222.0" y="361" width="113.5" height="20" rx="3" fill="#f59e0b"/>
+<rect x="338.5" y="363" width="36.0" height="17" fill="#fafafa"/>
+<text x="341.5" y="376" font-size="12" font-weight="700" fill="#111827">4.66</text>
+<text x="210" y="414" text-anchor="end" font-size="12" fill="#111827">+ entry needs known κ</text>
+<rect x="222.0" y="400" width="76.4" height="20" rx="3" fill="#f59e0b"/>
+<rect x="301.4" y="402" width="36.0" height="17" fill="#fafafa"/>
+<text x="304.4" y="415" font-size="12" font-weight="700" fill="#111827">1.33</text>
+<text x="210" y="453" text-anchor="end" font-size="12" fill="#111827">+ edge-based entry speed</text>
+<rect x="222.0" y="439" width="120" height="20" rx="3" fill="none" stroke="#9ca3af" stroke-dasharray="4 3"/>
+<text x="282.0" y="453" text-anchor="middle" font-size="11.5" fill="#6b7280">being measured</text>
+<path d="M290.0,236 V476" stroke="#dc2626" stroke-width="1.4" stroke-dasharray="5 3"/>
+<text x="294.0" y="490" font-size="11" fill="#dc2626">target 1</text>
+<text x="222.0" y="490" text-anchor="middle" font-size="10.5" fill="#6b7280">0.1</text>
+<text x="358.0" y="490" text-anchor="middle" font-size="10.5" fill="#6b7280">10</text>
+<text x="426.0" y="490" text-anchor="middle" font-size="10.5" fill="#6b7280">100</text>
+<rect x="490" y="182" width="390" height="320" rx="10" fill="#fafafa" stroke="#d1d5db"/>
+<text x="506" y="206" font-size="13.5" font-weight="700" fill="#111827">C++ perception cost per frame</text>
+<text x="506" y="224" font-size="11.5" fill="#4b5563">laptop CPU, 300 frames of dash cam · flow and detection excluded</text>
+<text x="640" y="264" text-anchor="end" font-size="12" fill="#111827" font-weight="400">ego-rotation</text>
+<rect x="650.0" y="250" width="124.5" height="20" rx="3" fill="#2563eb"/>
+<text x="780.5" y="265" font-size="12" font-weight="700" fill="#111827">8.03 ms</text>
+<text x="640" y="310" text-anchor="end" font-size="12" fill="#111827" font-weight="400">TTC methods</text>
+<rect x="650.0" y="296" width="40.0" height="20" rx="3" fill="#2563eb"/>
+<text x="696.0" y="311" font-size="12" font-weight="700" fill="#111827">2.58 ms</text>
+<text x="640" y="356" text-anchor="end" font-size="12" fill="#111827" font-weight="400">lead + κ</text>
+<rect x="650.0" y="342" width="8.2" height="20" rx="3" fill="#2563eb"/>
+<text x="664.2" y="357" font-size="12" font-weight="700" fill="#111827">0.53 ms</text>
+<text x="640" y="402" text-anchor="end" font-size="12" fill="#111827" font-weight="400">track · fuse · course</text>
+<rect x="650.0" y="388" width="2.0" height="20" rx="3" fill="#2563eb"/>
+<text x="658.0" y="403" font-size="12" font-weight="700" fill="#111827">0.06 ms</text>
+<text x="640" y="448" text-anchor="end" font-size="12" fill="#111827" font-weight="700">total</text>
+<rect x="650.0" y="434" width="173.6" height="20" rx="3" fill="#1e3a8a"/>
+<text x="829.6" y="449" font-size="12" font-weight="700" fill="#111827">11.2 ms</text>
+<text x="506" y="490" font-size="11" fill="#6b7280">KV260 A53 projection ≈ 35–45 ms → 15–30 FPS (to be measured)</text>
+</svg>

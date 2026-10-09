@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" width="900" height="700" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/>
+    </marker>
+  </defs>
+  <rect width="900" height="700" fill="#ffffff"/>
+  <text x="30" y="36" font-size="19" font-weight="700" fill="#111827">Who may warn: lead selection and the warning state machine</text>
+  <text x="30" y="56" font-size="12.5" fill="#4b5563">evaluated for every tracked object, every frame · only one object (the lead) can raise a warning</text>
+
+  <g text-anchor="middle">
+  <!-- left column: checks -->
+  <rect x="30" y="76" width="290" height="50" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.5"/>
+  <text x="175" y="97" font-size="13.5" font-weight="700" fill="#111827">Tracked object</text>
+  <text x="175" y="115" font-size="11.5" fill="#374151">fused TTC ± σ · course · κ</text>
+
+  <rect x="30" y="156" width="290" height="56" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="175" y="179" font-size="13.5" font-weight="700" fill="#1e40af">Seen in this frame?</text>
+  <text x="175" y="198" font-size="11.5" fill="#374151">a lost track is a prediction, not evidence</text>
+
+  <rect x="30" y="242" width="290" height="62" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="175" y="265" font-size="13.5" font-weight="700" fill="#1e40af">In our path now?</text>
+  <text x="175" y="285" font-size="11.5" fill="#374151">overlaps ≥ half of the narrower of</text>
+  <text x="175" y="300" font-size="11.5" fill="#374151">our 1.8 m width and the object's</text>
+
+  <rect x="30" y="334" width="290" height="104" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="175" y="357" font-size="13.5" font-weight="700" fill="#1e40af">Entering our path?</text>
+  <text x="175" y="377" font-size="11.5" fill="#374151">predicted in our path at contact</text>
+  <text x="175" y="394" font-size="11.5" fill="#374151">offset shrinking · within 4 m sideways</text>
+  <text x="175" y="411" font-size="11.5" fill="#374151">edge-based speed towards us ≥ 0.3 m/s</text>
+  <text x="175" y="428" font-size="11.5" fill="#374151">(crossing pedestrian, cut-in)</text>
+
+  <rect x="30" y="468" width="290" height="44" rx="8" fill="#f9fafb" stroke="#9ca3af" stroke-dasharray="5 3"/>
+  <text x="175" y="495" font-size="12.5" fill="#6b7280">not a candidate</text>
+
+  <!-- middle: candidates -->
+  <rect x="380" y="242" width="200" height="62" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="480" y="266" font-size="13.5" font-weight="700" fill="#1e40af">In-path candidate</text>
+  <text x="480" y="286" font-size="11.5" fill="#374151">may warn after 3 frames</text>
+
+  <rect x="380" y="355" width="200" height="62" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="480" y="379" font-size="13.5" font-weight="700" fill="#1e40af">Entry candidate</text>
+  <text x="480" y="399" font-size="11.5" fill="#374151">may warn after 6 frames</text>
+
+  <!-- right: kappa, lead -->
+  <rect x="630" y="232" width="245" height="196" rx="8" fill="#fff7ed" stroke="#d97706" stroke-width="1.5"/>
+  <text x="752" y="256" font-size="13.5" font-weight="700" fill="#92400e">Oncoming test</text>
+  <text x="752" y="278" font-size="12" fill="#374151">κ = TTC_static / TTC_object</text>
+  <text x="752" y="296" font-size="11.5" fill="#374151">= closing speed / our speed</text>
+  <text x="752" y="320" font-size="11.5" fill="#374151">≈ 1 parked · &lt; 1 same direction</text>
+  <text x="752" y="337" font-size="11.5" fill="#374151">&gt; 1.8 oncoming → dropped</text>
+  <text x="752" y="361" font-size="11.5" fill="#374151">κ unknown (e.g. we are stopped):</text>
+  <text x="752" y="378" font-size="11.5" fill="#374151">in-path kept · entry dropped,</text>
+  <text x="752" y="395" font-size="11.5" fill="#374151">since a prediction needs proof</text>
+  <text x="752" y="412" font-size="11.5" fill="#374151">it is not oncoming</text>
+
+  <rect x="630" y="458" width="245" height="56" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="752" y="481" font-size="13.5" font-weight="700" fill="#1e40af">Lead = nearest candidate</text>
+  <text x="752" y="500" font-size="11.5" fill="#374151">distance ∝ W_class / box width</text>
+  </g>
+
+  <!-- yes/no labels and arrows -->
+  <g stroke="#4b5563" stroke-width="1.4" fill="none" marker-end="url(#a)">
+    <path d="M175,126 V154"/>
+    <path d="M175,212 V240"/>
+    <path d="M175,304 V332"/>
+    <path d="M320,273 H378"/>
+    <path d="M320,386 H378"/>
+    <path d="M580,273 H628"/>
+    <path d="M580,386 H628"/>
+    <path d="M752,428 V456"/>
+  </g>
+  <g stroke="#9ca3af" stroke-width="1.4" fill="none" marker-end="url(#g)">
+    <path d="M175,438 V466"/>
+    <path d="M30,184 H14 V490 H28"/>
+  </g>
+  <g font-size="11.5" font-weight="700">
+    <text x="183" y="234" fill="#047857">yes</text>
+    <text x="22" y="176" fill="#6b7280">no</text>
+    <text x="336" y="266" fill="#047857">yes</text>
+    <text x="183" y="326" fill="#b91c1c">no</text>
+    <text x="336" y="379" fill="#047857">yes</text>
+    <text x="183" y="460" fill="#b91c1c">no</text>
+  </g>
+
+  <!-- FSM -->
+  <rect x="20" y="540" width="860" height="148" rx="10" fill="#fafafa" stroke="#d1d5db"/>
+  <text x="36" y="562" font-size="13.5" font-weight="700" fill="#111827">Warning state machine (one per track; only the lead's input is "on course")</text>
+
+  <g text-anchor="middle">
+    <rect x="50" y="600" width="150" height="52" rx="26" fill="#ffffff" stroke="#6b7280" stroke-width="2"/>
+    <text x="125" y="631" font-size="14" font-weight="700" fill="#374151">NONE</text>
+    <rect x="375" y="600" width="150" height="52" rx="26" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="450" y="631" font-size="14" font-weight="700" fill="#92400e">WARNING</text>
+    <rect x="700" y="600" width="150" height="52" rx="26" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+    <text x="775" y="631" font-size="14" font-weight="700" fill="#991b1b">CRITICAL</text>
+  </g>
+  <g stroke="#4b5563" stroke-width="1.4" fill="none" marker-end="url(#a)">
+    <path d="M200,614 H373"/>
+    <path d="M525,614 H698"/>
+    <path d="M373,640 H202"/>
+    <path d="M698,640 H527"/>
+  </g>
+  <g font-size="11" fill="#374151" text-anchor="middle">
+    <text x="287" y="607">TTC ≤ 2.7 s, 3 frames, ≥ 2 methods</text>
+    <text x="287" y="656">10 frames &gt; 3.2 s or off course</text>
+    <text x="612" y="607">TTC + σ ≤ 1.5 s</text>
+    <text x="612" y="656">10 frames &gt; 2.0 s</text>
+    <text x="450" y="586" fill="#991b1b">from NONE straight to CRITICAL when TTC + σ ≤ 1.5 s</text>
+    <text x="450" y="680" fill="#6b7280">thresholds follow NHTSA's FCW test (warning by TTC 2.0–2.4 s) · raise fast, clear slowly</text>
+  </g>
+</svg>

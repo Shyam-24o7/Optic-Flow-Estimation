@@ -1,7 +1,23 @@
 # HLS (Vitis HLS) sources
 
+## `ttc_engine/` (2026, current)
+
+The Horn TTC engine of the forward-collision-warning system: one streaming
+pass over a frame pair produces 23 integer sums (11 Horn terms, 12 flow
+moments) for up to 16 boxes. Bit-exact with `collision_avoidance/fcw/horn.py`
+and `host/src/horn.cpp` in C-simulation on 5 golden cases. Synthesis needs the
+Zynq UltraScale+ device data for Vitis 2024.2. See the main README, section
+"The custom HLS engine", and `docs/superpowers/plans/2026-10-09-horn-ttc-engine.md`.
+
+```bash
+cd hls/ttc_engine
+make csim XILINX_HLS_INCLUDE=/path/to/Xilinx/Vitis/2024.2/include
+```
+
+## 2025 sources
+
 Original hardware work from 2025, kept as found. None of it has been
-synthesised or simulated during the reconstruction (no Vitis HLS install).
+synthesised or simulated during the reconstruction.
 
 ## `image_derivative/`
 
