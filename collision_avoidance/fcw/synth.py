@@ -48,6 +48,9 @@ class SceneConfig:
     yaw_rate_rps: float = 0.0          # camera yaw rate
     bg_depth_m: float = 1000.0
     seed: int = 0
+    ground: bool = False               # textured road plane below the horizon
+    ego_speed_mps: float = 0.0         # our forward speed: moves the road (objects use closing_speed)
+    camera_height_m: float = 1.05      # road at Y = camera_height (object bottom with the defaults)
 
 
 @dataclass
@@ -82,6 +85,10 @@ def render_scene(cfg: SceneConfig) -> Scene:
     obj_scale = (cfg.obj_width_m / obj_tex.shape[1], cfg.obj_height_m / obj_tex.shape[0])
     corners = np.array([[0, 0, 1], [obj_tex.shape[1], 0, 1], [0, obj_tex.shape[0], 1], [obj_tex.shape[1], obj_tex.shape[0], 1]], float).T
 
+    ground_tex = texture(2048, 512, cfg.seed + 2, cell=6)
+    g_half_width, g_length = 15.0, 150.0
+    g_scale = (2 * g_half_width / ground_tex.shape[1], g_length / ground_tex.shape[0])
+
     scene = Scene(cfg, K)
     prev_R = np.eye(3)
     for i in range(cfg.n_frames):
@@ -92,6 +99,8 @@ def render_scene(cfg: SceneConfig) -> Scene:
         H_bg = _plane_homography(K, R, bg_scale, (-bg_span[0] / 2, -bg_span[1] / 2), cfg.bg_depth_m)
         H_obj = _plane_homography(K, R, obj_scale, (x - cfg.obj_width_m / 2, cfg.obj_y_m - cfg.obj_height_m / 2), z)
         image = cv2.warpPerspective(bg_tex, H_bg, size, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+        if cfg.ground:
+            image = _composite_ground(image, ground_tex, g_scale, g_half_width, K, R, cfg, cfg.ego_speed_mps * t, size)
         obj = cv2.warpPerspective(obj_tex, H_obj, size, flags=cv2.INTER_LINEAR)
         mask = cv2.warpPerspective(np.full(obj_tex.shape, 255, np.uint8), H_obj, size, flags=cv2.INTER_LINEAR)
         alpha = mask.astype(np.float32) / 255.0
@@ -107,6 +116,19 @@ def render_scene(cfg: SceneConfig) -> Scene:
         scene.rotations.append(R.T @ prev_R)  # X_curr = R_curr^T R_prev X_prev
         prev_R = R
     return scene
+
+
+def _composite_ground(image, tex, scale, half_width, K, R, cfg, travelled_m, size):
+    """Road plane Y = camera_height; texture row v is at world Z = v * scale_z, seen from Z = travelled_m."""
+    near = 1.0
+    v_min = int(np.ceil((travelled_m + near) / scale[1]))   # rows in front of the camera only
+    part = tex[v_min:]
+    M = np.array([[scale[0], 0.0, -half_width], [0.0, 0.0, cfg.camera_height_m], [0.0, scale[1], scale[1] * v_min - travelled_m]])
+    H = K @ R.T @ M
+    road = cv2.warpPerspective(part, H, size, flags=cv2.INTER_LINEAR)
+    mask = cv2.warpPerspective(np.full(part.shape, 255, np.uint8), H, size, flags=cv2.INTER_LINEAR)
+    alpha = mask.astype(np.float32) / 255.0
+    return (alpha * road + (1 - alpha) * image).round().astype(np.uint8)
 
 
 def flow_from_motion(K: np.ndarray, R: np.ndarray, t: np.ndarray, depth, width: int, height: int, step: int = 4):

@@ -49,7 +49,8 @@ FcwPipeline::FcwPipeline(FcwConfig cfg, DetectorFn detector, FlowSource flow)
       tracker_(cfg_.tracker),
       ego_(K_, cfg_.ego),
       fusion_(cfg_.fusion),
-      course_(cfg_.course) {}
+      course_(cfg_.course),
+      closing_(cfg_.closing) {}
 
 FcwFrame FcwPipeline::process(const cv::Mat& frame_bgr, double t) {
   const auto t0 = std::chrono::steady_clock::now();
@@ -92,13 +93,14 @@ FcwFrame FcwPipeline::process(const cv::Mat& frame_bgr, double t) {
   for (const ScaleTrack* tr : select(tracks))
     out.objects.push_back(assess(*tr, gray, prev_gray, out.flow, out.ego, out.heading, yaw_rate, t, dt));
   const auto warn_mark = std::chrono::steady_clock::now();
-  warn(out.objects, tracks);
+  warn(out.objects, tracks, out.flow, out.ego, dt);
   out.timings_ms["warn"] = msSince(warn_mark);
   timings_ = nullptr;
   std::vector<int> live;
   for (const auto& [id, tr] : tracks) live.push_back(id);
   fusion_.retain(live);
   course_.retain(live);
+  closing_.retain(live);
   for (auto it = fsms_.begin(); it != fsms_.end();) it = tracks.count(it->first) ? std::next(it) : fsms_.erase(it);
   for (auto it = in_path_streak_.begin(); it != in_path_streak_.end();) it = tracks.count(it->first) ? std::next(it) : in_path_streak_.erase(it);
   on_course_.clear();
@@ -177,11 +179,26 @@ ObjectResult FcwPipeline::assess(const ScaleTrack& track, const cv::Mat& gray, c
 
 // Only the lead vehicle may warn: the nearest object in our path, in path for a few frames.
 // A lost track is a prediction, not an observation: it is never the lead.
-void FcwPipeline::warn(std::vector<ObjectResult>& objects, const std::map<int, ScaleTrack>& tracks) {
+// Clearly oncoming objects (closing much faster than we drive, see closing.hpp) are never the lead.
+void FcwPipeline::warn(std::vector<ObjectResult>& objects, const std::map<int, ScaleTrack>& tracks, const cv::Mat& flow,
+                       const EgoMotion& ego, double dt) {
+  std::optional<double> c;
+  if (cfg_.closing.enabled && ego.foe) {
+    std::vector<Box> boxes;
+    for (const auto& o : objects) boxes.push_back(o.bbox);
+    c = closing_.updateC(roadConstant(flow, *ego.foe, ego.R, K_, boxes, cfg_.closing));
+  }
   const ObjectResult* lead = nullptr;
   double lead_dist = 0;
   for (auto& o : objects) {
-    const bool in_path = o.course && o.course->in_path && !tracks.at(o.track_id).lost;
+    bool in_path = o.course && o.course->in_path && !tracks.at(o.track_id).lost;
+    if (in_path && cfg_.closing.enabled) {
+      std::optional<double> kappa;
+      if (c && ego.foe && o.estimate && o.estimate->ttc_s)
+        if (auto s = staticTtc(*c, o.bbox, *ego.foe, cfg_.closing)) kappa = *s * dt / *o.estimate->ttc_s;
+      o.kappa = closing_.update(o.track_id, kappa);
+      in_path = !o.kappa || *o.kappa <= cfg_.closing.oncoming_kappa;
+    }
     int& streak = in_path_streak_[o.track_id];
     streak = in_path ? streak + 1 : 0;
     if (!streak) continue;

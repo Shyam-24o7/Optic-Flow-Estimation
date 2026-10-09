@@ -24,3 +24,13 @@ def test_pure_rotation_flow_does_not_depend_on_depth():
     _, near = synth.flow_from_motion(K, R, np.zeros(3), 5.0, 512, 384, step=32)
     _, far = synth.flow_from_motion(K, R, np.zeros(3), 500.0, 512, 384, step=32)
     np.testing.assert_allclose(near, far, atol=1e-9)
+
+
+def test_ground_plane_moves_only_when_we_drive():
+    still = synth.render_scene(synth.SceneConfig(n_frames=3, ground=True, ego_speed_mps=0.0, closing_speed_mps=0.0))
+    moving = synth.render_scene(synth.SceneConfig(n_frames=3, ground=True, ego_speed_mps=10.0, closing_speed_mps=10.0))
+    road = (slice(300, 384), slice(0, 120))          # below the horizon, left of the object
+    assert np.array_equal(still.frames[0][road], still.frames[2][road])
+    assert not np.array_equal(moving.frames[0][road], moving.frames[2][road])
+    sky = (slice(0, 150), slice(0, 512))              # above the horizon: the far background only
+    assert np.abs(moving.frames[0][sky].astype(int) - moving.frames[2][sky].astype(int)).max() <= 2

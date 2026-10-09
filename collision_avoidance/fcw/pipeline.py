@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from ..tracking import Detection
+from .closing import ClosingConfig, ClosingTracker, road_constant, static_ttc
 from .collision import CLASS_WIDTH_M, CourseChecker, CourseConfig, CourseResult, Level, WarningConfig, WarningFsm
 from .divergence import DivergenceConfig, divergence_ttc, flow_moments, robust_mask
 from .ego_rotation import EgoMotion, EgoRotationConfig, EgoRotationEstimator, rotation_divergence
@@ -46,6 +47,7 @@ class FcwConfig:
     fusion: FusionConfig = field(default_factory=FusionConfig)
     course: CourseConfig = field(default_factory=CourseConfig)
     warning: WarningConfig = field(default_factory=WarningConfig)
+    closing: ClosingConfig = field(default_factory=ClosingConfig)
 
     @property
     def K(self) -> np.ndarray:
@@ -61,6 +63,7 @@ class ObjectResult:
     course: CourseResult | None
     level: Level
     measurements: list[Measurement] = field(default_factory=list)  # everything produced, before gating
+    kappa: float | None = None    # closing speed / our speed (median of recent frames); > ~1.8 means oncoming
 
 
 @dataclass
@@ -113,6 +116,7 @@ class FcwPipeline:
         self._prev_t: float | None = None
         self._on_course: set[int] = set()
         self._in_path_streak: dict[int, int] = {}
+        self.closing = ClosingTracker(cfg.closing)
 
     def process(self, frame_bgr: np.ndarray, t: float) -> FcwFrame:
         timings: dict[str, float] = {}
@@ -147,16 +151,24 @@ class FcwPipeline:
         mark = time.perf_counter()
         selected = self._select(tracks)
         objects = [self._assess(track, gray, prev_gray, flow, ego, heading, yaw_rate, t, dt) for track in selected]
-        self._warn(objects, {tr.id: tr for tr in selected})
+        self._warn(objects, {tr.id: tr for tr in selected}, flow, ego, dt)
         live = list(tracks)
         self.fusion.retain(live)
         self.course.retain(live)
+        self.closing.retain(live)
         self.fsms = {tid: f for tid, f in self.fsms.items() if tid in tracks}
         self._in_path_streak = {tid: n for tid, n in self._in_path_streak.items() if tid in tracks}
         self._on_course = {o.track_id for o in objects if o.course and o.course.in_path}
         timings["ttc"] = (time.perf_counter() - mark) * 1e3
         timings["total"] = (time.perf_counter() - t0) * 1e3
         return FcwFrame(self._index, t, frame, flow, ego, heading, objects, timings, dt)
+
+    def _kappa(self, o: ObjectResult, c: float | None, ego: EgoMotion, dt: float) -> float | None:
+        """This frame's closing-speed ratio, or None without road timing, a heading or a TTC."""
+        if c is None or ego.foe is None or not (o.estimate and o.estimate.ttc_s):
+            return None
+        static = static_ttc(c, o.bbox, ego.foe, self.cfg.closing)
+        return None if static is None else static * dt / o.estimate.ttc_s
 
     def _select(self, tracks: dict[int, ScaleTrack]) -> list[ScaleTrack]:
         """At most max_ttc_tracks: last frame's on-course tracks first, then the largest boxes."""
@@ -200,13 +212,20 @@ class FcwPipeline:
         course = self.course.update(track.id, t, box, track.class_name, heading[0], heading[1], ttc, yaw_rate)
         return ObjectResult(track.id, box, track.class_name, estimate, course, Level.NONE, measurements)
 
-    def _warn(self, objects: list[ObjectResult], tracks: dict[int, ScaleTrack]) -> None:
+    def _warn(self, objects: list[ObjectResult], tracks: dict[int, ScaleTrack], flow, ego: EgoMotion, dt: float) -> None:
         """Only the lead vehicle may warn: the nearest object in our path, in path for a few frames.
 
-        A lost track is a prediction, not an observation: it is never the lead.
+        A lost track is a prediction, not an observation: it is never the lead. Neither is an
+        object closing clearly faster than we drive (oncoming traffic, see closing.py).
         """
+        c = None
+        if self.cfg.closing.enabled and ego.foe is not None:
+            c = self.closing.update_c(road_constant(flow, ego.foe, ego.R, self.K, [o.bbox for o in objects], self.cfg.closing))
         for o in objects:
             in_path = o.course is not None and o.course.in_path and not tracks[o.track_id].lost
+            if in_path and self.cfg.closing.enabled:
+                o.kappa = self.closing.update(o.track_id, self._kappa(o, c, ego, dt))
+                in_path = o.kappa is None or o.kappa <= self.cfg.closing.oncoming_kappa
             self._in_path_streak[o.track_id] = self._in_path_streak.get(o.track_id, 0) + 1 if in_path else 0
         candidates = [o for o in objects if self._in_path_streak[o.track_id] > 0]
         # Nearest = largest metric width in pixels: distance is proportional to W_obj / w.

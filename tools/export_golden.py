@@ -423,7 +423,7 @@ def export_pipeline(out: Path) -> None:
     }
     twenty = [np.array([10 + 30 * (i % 10), 100 + 60 * (i // 10), 35 + 30 * (i % 10), 150 + 60 * (i // 10)], float) for i in range(20)]
     w = Writer(local, "pipeline")
-    w.str("scenarios", ",".join([*scenarios, "twenty"]))
+    w.str("scenarios", ",".join([*scenarios, "ground_oncoming", "ground_parked", "twenty"]))
     dis = DisFlow()
 
     def run(name, frames, boxes_per_frame, times):
@@ -456,9 +456,14 @@ def export_pipeline(out: Path) -> None:
                 e = o.estimate
                 bits = sum(1 << METHOD_INDEX[m.method] for m in o.measurements)
                 rows.append([o.track_id, *o.bbox, int(o.level), e is not None, e.eta if e else np.nan,
-                             (e.ttc_s if e and e.ttc_s else np.nan), o.course.on_course if o.course else 0, bits])
-            w.mat(k + "_objects", np.array(rows, float).reshape(-1, 11))  # id, x1, y1, x2, y2, level, has_est, eta, ttc, on_course, method bits
+                             (e.ttc_s if e and e.ttc_s else np.nan), o.course.on_course if o.course else 0, bits,
+                             np.nan if o.kappa is None else o.kappa])
+            # id, x1, y1, x2, y2, level, has_est, eta, ttc, on_course, method bits, kappa
+            w.mat(k + "_objects", np.array(rows, float).reshape(-1, 12))
 
+    # Road plane + our own motion: exercises the closing-speed (oncoming) test end to end.
+    scenarios["ground_oncoming"] = (synth.render_scene(synth.SceneConfig(n_frames=50, ground=True, ego_speed_mps=10.0, closing_speed_mps=25.0, z0_m=70.0)), list(range(50)), [i / 30 for i in range(50)])
+    scenarios["ground_parked"] = (synth.render_scene(synth.SceneConfig(n_frames=60, ground=True, ego_speed_mps=10.0, closing_speed_mps=10.0, z0_m=30.0)), list(range(60)), [i / 30 for i in range(60)])
     for name, (scene, idx, times) in scenarios.items():
         run(name, [scene.frames[i] for i in idx], [[scene.boxes[i]] for i in idx], times)
     tex = synth.texture(384, 512, 0)

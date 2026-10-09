@@ -14,6 +14,7 @@
 #include <tuple>
 #include <vector>
 
+#include "fcw/closing.hpp"
 #include "fcw/collision.hpp"
 #include "fcw/divergence.hpp"
 #include "fcw/ego_rotation.hpp"
@@ -43,6 +44,7 @@ struct FcwConfig {
   FusionConfig fusion;
   CourseConfig course;
   WarningConfig warning;
+  ClosingConfig closing;
   cv::Matx33d K() const {
     return {fx, 0, frame_width / 2.0, 0, fy.value_or(fx), frame_height / 2.0, 0, 0, 1};
   }
@@ -56,6 +58,7 @@ struct ObjectResult {
   std::optional<CourseResult> course;
   Level level = Level::None;
   std::vector<Measurement> measurements;  // everything produced, before gating
+  std::optional<double> kappa;            // closing speed / our speed (median of recent frames)
 };
 
 struct FcwFrame {
@@ -104,7 +107,9 @@ class FcwPipeline {
   std::set<int> on_course_;
   std::map<int, int> in_path_streak_;
   std::map<std::string, double>* timings_ = nullptr;  // per-method accumulators during process()
-  void warn(std::vector<ObjectResult>& objects, const std::map<int, ScaleTrack>& tracks);
+  ClosingTracker closing_;
+  void warn(std::vector<ObjectResult>& objects, const std::map<int, ScaleTrack>& tracks, const cv::Mat& flow,
+            const EgoMotion& ego, double dt);
 };
 
 }  // namespace fcw

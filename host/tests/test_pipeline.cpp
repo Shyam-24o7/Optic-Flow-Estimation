@@ -65,6 +65,9 @@ void replay(const std::string& name) {
         else { ASSERT_TRUE(obj.estimate->ttc_s.has_value()) << ok; EXPECT_NEAR(*obj.estimate->ttc_s, ttc, 1e-4 * ttc) << ok; }
       }
       EXPECT_EQ(obj.course && obj.course->on_course, objs.at<double>(o, 9) != 0) << ok;
+      const double kappa = objs.at<double>(o, 11);
+      if (std::isnan(kappa)) EXPECT_FALSE(obj.kappa.has_value()) << ok;
+      else { ASSERT_TRUE(obj.kappa.has_value()) << ok; EXPECT_NEAR(*obj.kappa, kappa, 1e-3 * (1 + kappa)) << ok; }
     }
   }
 }
@@ -78,3 +81,5 @@ TEST(PipelineParity, DroppedFrames) { replay("dropped"); }
 TEST(PipelineParity, IrregularFrames) { replay("irregular"); }
 TEST(PipelineParity, OutOfOrderTimestamps) { replay("out_of_order"); }
 TEST(PipelineParity, TwentyTracksSelectSixteen) { replay("twenty"); }
+TEST(PipelineParity, OncomingOnTheRoadIsNotTheLead) { replay("ground_oncoming"); }
+TEST(PipelineParity, ParkedOnTheRoadStillWarns) { replay("ground_parked"); }

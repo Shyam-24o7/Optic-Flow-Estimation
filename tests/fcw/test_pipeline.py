@@ -144,3 +144,24 @@ def test_only_the_nearest_object_in_our_path_can_warn():
     lead, behind = levels[0], levels[1]
     assert Level.WARNING in lead or Level.CRITICAL in lead
     assert all(lv == Level.NONE for lv in behind)
+
+
+def _scene_levels(scene_cfg):
+    scene = synth.render_scene(scene_cfg)
+    pipeline = FcwPipeline(FcwConfig(), lambda f: [Detection(scene.boxes[current], "car", 0.9)], DisFlow())
+    levels = []
+    for current in range(len(scene.frames)):
+        levels.append(pipeline.process(cv2.cvtColor(scene.frames[current], cv2.COLOR_GRAY2BGR), current / 30).level)
+    return scene, levels
+
+
+def test_oncoming_car_straight_ahead_does_not_warn():
+    # We drive at 10 m/s; it comes at 15 m/s: closing 2.5x our speed, the oncoming-traffic signature.
+    _, levels = _scene_levels(synth.SceneConfig(n_frames=70, ground=True, ego_speed_mps=10.0, closing_speed_mps=25.0, z0_m=70.0))
+    assert all(lv == Level.NONE for lv in levels)
+
+
+def test_parked_car_straight_ahead_still_warns():
+    scene, levels = _scene_levels(synth.SceneConfig(n_frames=70, ground=True, ego_speed_mps=10.0, closing_speed_mps=10.0, z0_m=30.0))
+    first = next(i for i, lv in enumerate(levels) if lv >= Level.WARNING)
+    assert scene.ttc_s[first] >= 2.0
