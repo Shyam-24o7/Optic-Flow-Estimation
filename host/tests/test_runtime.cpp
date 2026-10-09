@@ -78,3 +78,13 @@ TEST(Runtime, SummaryLineMatchesThePythonCli) {
   EXPECT_EQ(fcw::summaryLine(levels, {50.0, 10.0, 20.0, 30.0, 40.0}),
             "frames 5 | mean 25.0 ms/frame | warnings raised 2 | critical frames 1");
 }
+
+TEST(Pipeline, ReportsTimePerPerceptionStep) {
+  // Per-method timings feed the on-board latency histograms (spec section 8).
+  auto source = syntheticSource(3);
+  fcw::FcwPipeline pipe(fcw::FcwConfig{}, oneCar(), fcw::disFlow());
+  fcw::FcwFrame last;
+  while (auto f = source()) last = pipe.process(f->bgr, f->t);
+  for (const char* key : {"flow", "detection", "track", "ego", "looming", "scale", "horn", "divergence", "fusion_course", "warn", "total"})
+    EXPECT_TRUE(last.timings_ms.count(key)) << key;
+}

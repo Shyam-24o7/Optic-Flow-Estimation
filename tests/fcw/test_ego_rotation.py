@@ -64,3 +64,14 @@ def test_rotation_divergence_matches_small_angle_formula(center):
     R = cv2.Rodrigues(rvec)[0]
     xn, yn = (center[0] - K[0, 2]) / K[0, 0], (center[1] - K[1, 2]) / K[1, 1]
     assert rotation_divergence(R, K, center) == pytest.approx(3 * (xn * rvec[1] - yn * rvec[0]), rel=0.05, abs=1e-4)
+
+
+def test_pose_from_an_inlier_subset_matches_the_full_set():
+    # recoverPose only picks among four decompositions of E; a subset of inliers decides it as well.
+    from collision_avoidance.fcw.ego_rotation import EgoRotationConfig
+    R, t = synth.rotation_y(np.radians(0.6)), np.array([0.0, 0.0, -0.5])
+    flow = dense_flow(R, t, road_depth)
+    full = EgoRotationEstimator(K, EgoRotationConfig(pose_points=0)).update(flow, [])
+    fast = EgoRotationEstimator(K, EgoRotationConfig(pose_points=64)).update(flow, [])
+    assert angle_deg(full.R @ fast.R.T) < 0.01
+    np.testing.assert_allclose(fast.foe, full.foe, atol=0.5)

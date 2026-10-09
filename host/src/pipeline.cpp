@@ -77,17 +77,24 @@ FcwFrame FcwPipeline::process(const cv::Mat& frame_bgr, double t) {
   std::vector<Box> prev_boxes;
   for (const auto& [id, tr] : tracker_.tracks()) prev_boxes.push_back(tr.bbox());
   const auto& tracks = tracker_.update(detections, dt, index_);
+  out.timings_ms["track"] = msSince(mark);
+  mark = std::chrono::steady_clock::now();
   out.ego = prev_gray.empty() ? EgoMotion{} : ego_.update(out.flow, prev_boxes);
   out.heading = cfg_.heading_from_foe && out.ego.foe ? *out.ego.foe : pp_;
   const double yaw_rate = out.ego.rvec[1] / dt;
   ring_.emplace_back(index_, t, gray);
   if (static_cast<int>(ring_.size()) > kHistory) ring_.pop_front();
-  out.timings_ms["track_ego"] = msSince(mark);
+  out.timings_ms["ego"] = msSince(mark);
 
+  for (const char* k : {"looming", "scale", "horn", "divergence", "fusion_course"}) out.timings_ms[k] = 0.0;
+  timings_ = &out.timings_ms;  // assess() adds its per-method time to these keys
   mark = std::chrono::steady_clock::now();
   for (const ScaleTrack* tr : select(tracks))
     out.objects.push_back(assess(*tr, gray, prev_gray, out.flow, out.ego, out.heading, yaw_rate, t, dt));
+  const auto warn_mark = std::chrono::steady_clock::now();
   warn(out.objects, tracks);
+  out.timings_ms["warn"] = msSince(warn_mark);
+  timings_ = nullptr;
   std::vector<int> live;
   for (const auto& [id, tr] : tracks) live.push_back(id);
   fusion_.retain(live);
@@ -135,7 +142,14 @@ ObjectResult FcwPipeline::assess(const ScaleTrack& track, const cv::Mat& gray, c
   const Box& box = res.bbox;
   const EtaFilter* prior = fusion_.filter(track.id);
   const std::optional<double> eta_prior = prior ? prior->eta : std::nullopt;
+  auto mark = std::chrono::steady_clock::now();
+  auto lap = [&](const char* key) {  // add the time since the last lap to timings_[key]
+    const auto now = std::chrono::steady_clock::now();
+    if (timings_) (*timings_)[key] += std::chrono::duration<double, std::milli>(now - mark).count();
+    mark = now;
+  };
   if (auto m = looming(track)) res.measurements.push_back(*m);
+  lap("looming");
   if (!prev_gray.empty() && !track.lost) {
     const int k = chooseGap(eta_prior, dt, static_cast<int>(ring_.size()) - 1);
     const auto past = frameAt(index_ - k);
@@ -144,16 +158,20 @@ ObjectResult FcwPipeline::assess(const ScaleTrack& track, const cv::Mat& gray, c
       // The real span, not k * dt: frames can arrive irregularly.
       if (auto m = scaleTtc(gray, past->second, box, *box_tk, k, (t - past->first) / k, cfg_.scale)) res.measurements.push_back(*m);
     }
+    lap("scale");
     const int level = chooseLevel(eta_prior, box, std::hypot(track.x[4], track.x[5]), dt);
     if (auto m = hornAtLevel(prev_gray, gray, box, pp_, level, dt, cfg_.horn)) res.measurements.push_back(*m);
+    lap("horn");
     const cv::Mat mask = robustMask(flow, box, pp_, cfg_.divergence);
     const double rot = rotationDivergence(ego.R, K_, {box.cx(), box.cy()});
     if (auto m = divergenceTtc(flowMoments(flow, box, pp_, mask, cfg_.divergence.shrink), box, rot, 1, dt, cfg_.divergence))
       res.measurements.push_back(*m);
   }
+  lap("divergence");
   res.estimate = fusion_.update(track.id, t, dt, res.measurements);
   const std::optional<double> ttc = res.estimate ? res.estimate->ttc_s : std::nullopt;
   res.course = course_.update(track.id, t, box, track.cls, heading.x, heading.y, ttc, yaw_rate);
+  lap("fusion_course");
   return res;
 }
 

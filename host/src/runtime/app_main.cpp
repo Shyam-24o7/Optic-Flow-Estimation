@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdio>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -95,12 +96,15 @@ int main(int argc, char** argv) {
     cfg.fx = args.fx;
     std::vector<fcw::Level> levels;
     std::vector<double> totals;
+    std::map<std::string, double> stage_sum;
     cv::VideoWriter writer;
     fcw::RuntimeOptions opt;
     opt.live = live;
     fcw::Runtime runtime(cfg, opt, source, recordedDetector(args.detections), fcw::disFlow(), [&](const fcw::FcwFrame& f) {
       levels.push_back(f.level());
       totals.push_back(f.timings_ms.at("total"));
+      if (levels.size() > 1)
+        for (const auto& [k, v] : f.timings_ms) stage_sum[k] += v;  // first frame excluded, like the summary
       if (args.output.empty() && !args.display) return;
       const cv::Mat img = fcw::drawOverlay(f, cfg.fx);
       if (!args.output.empty()) {
@@ -114,6 +118,11 @@ int main(int argc, char** argv) {
     });
     const fcw::RuntimeStats stats = runtime.run();
     std::cout << fcw::summaryLine(levels, totals) << " | dropped " << stats.dropped << "\n";
+    if (levels.size() > 1) {
+      std::cout << "mean ms/frame by step:";
+      for (const auto& [k, v] : stage_sum) std::printf(" %s=%.2f", k.c_str(), v / (levels.size() - 1));
+      std::cout << "\n";
+    }
     return 0;
   } catch (const std::exception& e) {
     std::cerr << "fcw_app: " << e.what() << "\n";

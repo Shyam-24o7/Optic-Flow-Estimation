@@ -56,12 +56,13 @@ std::optional<EgoMotion> estimate(const cv::Mat& prev, const cv::Mat& curr, cons
   const int n = prev.rows;
   if (n < cfg.min_points) return std::nullopt;
   cv::Mat e_mask;
-  cv::Mat E = cv::findEssentialMat(prev, curr, cv::Mat(K), cv::RANSAC, cfg.ransac_confidence, cfg.ransac_threshold_px, e_mask);
+  cv::Mat E = cv::findEssentialMat(prev, curr, cv::Mat(K), cv::RANSAC, cfg.ransac_confidence, cfg.ransac_threshold_px,
+                                   cfg.max_iters, e_mask);
   const double e_ratio = E.empty() ? 0.0 : cv::countNonZero(e_mask) / static_cast<double>(n);
   // Pure rotation (or a stopped car) is degenerate for E: prefer the rotation homography
   // when it explains about as many points as E does.
   cv::Mat h_mask;
-  cv::Mat H = cv::findHomography(prev, curr, cv::RANSAC, cfg.ransac_threshold_px, h_mask);
+  cv::Mat H = cv::findHomography(prev, curr, cv::RANSAC, cfg.ransac_threshold_px, h_mask, cfg.max_iters);
   if (!H.empty()) {
     const auto [R_h, deviation] = rotationFromHomography(H, K);
     const double h_ratio = cv::countNonZero(h_mask) / static_cast<double>(n);
@@ -77,9 +78,25 @@ std::optional<EgoMotion> estimate(const cv::Mat& prev, const cv::Mat& curr, cons
   }
   if (E.empty()) return std::nullopt;
   E = E.rowRange(0, 3);  // findEssentialMat may stack several solutions
-  cv::Mat R, t, pose_mask = e_mask.clone();
+  cv::Mat R, t;
   // recoverPose's own mask also drops far background, so E's RANSAC share is the confidence.
-  cv::recoverPose(E, prev, curr, cv::Mat(K), R, t, pose_mask);
+  std::vector<int> inliers;
+  for (int i = 0; i < n; ++i)
+    if (e_mask.at<uint8_t>(i)) inliers.push_back(i);
+  if (cfg.pose_points > 0 && static_cast<int>(inliers.size()) > cfg.pose_points) {
+    // Triangulating every inlier was half the frame time; a spread subset picks the same pose.
+    cv::Mat p(cfg.pose_points, 2, CV_64F), c(cfg.pose_points, 2, CV_64F);
+    const double step = static_cast<double>(inliers.size() - 1) / (cfg.pose_points - 1);
+    for (int j = 0; j < cfg.pose_points; ++j) {
+      const int i = inliers[static_cast<int>(j * step)];  // numpy linspace(...).astype(int)
+      prev.row(i).copyTo(p.row(j));
+      curr.row(i).copyTo(c.row(j));
+    }
+    cv::recoverPose(E, p, c, cv::Mat(K), R, t);
+  } else {
+    cv::Mat pose_mask = e_mask.clone();
+    cv::recoverPose(E, prev, curr, cv::Mat(K), R, t, pose_mask);
+  }
   EgoMotion m;
   m.R = cv::Matx33d(R);
   m.rvec = rvecOf(m.R);
