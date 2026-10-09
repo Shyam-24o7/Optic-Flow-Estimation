@@ -1,7 +1,7 @@
 # P1 PC evaluation: FCW algorithm core
 
 - **Plan:** `docs/superpowers/plans/2026-10-06-fcw-algorithm-core.md`, Task 13
-- **Status:** all PC criteria measured. Three pass; **false alarms still fail** (17 per 10 min vs < 1, down from 117 after the lead-vehicle change).
+- **Status:** all four PC criteria **pass** (as of commit 57442e0). Open gap: objects crossing into our path warn late (see the last section).
 - **Environment:** Windows 11, Python 3.11 venv, torch 2.6.0+cu124 (RTX 4060 Laptop GPU), OpenCV 4.10 DIS flow as the PC stand-in for the board's Vitis LK.
 
 ## Exit criteria (PC half of P1)
@@ -11,7 +11,7 @@
 | Yaw-rate RMS vs KITTI OXTS | < 1.0 °/s | **0.681 °/s** (805 frame pairs, 3 drives) | **pass** |
 | Fused median relative TTC error (EvTTC) | ≤ 20% | **11.5%** with the stale-estimate fix (12.7% after calibration, 16.2% before) | **pass** |
 | Approach events warned before true TTC 2.0 s (EvTTC) | ≥ 90% | **100%** (5 of 5) | **pass** |
-| False alarms on normal driving | < 1 per 10 min | **17.0 per 10 min** (51 raises in 30.0 min); 117.2 before the lead-vehicle change | **fail** |
+| False alarms on normal driving | < 1 per 10 min | **0.67 per 10 min** (2 raises in 30.0 min); 17.0 with the lead-vehicle rule only, 117.2 before it | **pass** |
 | Fusion `var_scale` calibration | from EvTTC | looming 0.19, scale 6.61, horn 68.13, divergence 1012.81 | applied |
 
 ## Ego-rotation detail
@@ -103,6 +103,22 @@ The change removed 85% of false alarms without costing a single real warning. Th
 
 Ego-rotation dominated: `recoverPose` triangulated every inlier to pick one of four poses. With 64 spread inliers and RANSAC capped at 200 iterations, KITTI yaw error is unchanged per drive. On the KV260's Cortex-A53 (roughly 3–6× slower per thread) this projects to about 30–60 ms per frame, i.e. about 15–30 FPS, to be measured on the board. Because Horn costs only ~0.3 ms here, the FPGA Horn engine (plan 3) would save little CPU time on this footage; its value is headroom for more objects and higher resolution.
 
+## Oncoming-traffic exclusion (2026-10-09)
+
+Most of the 51 remaining warnings were oncoming cars straight ahead on narrow streets: real short TTCs, but not the lead vehicle. The closing-speed ratio kappa = TTC_static / TTC_object (closing speed over our speed) is measured without calibration from the road's own flow: on a flat road TTC_road(y)·(y − y_FOE) is constant, measured on the road band where flow is large, and it gives the static TTC at any object's contact row. On synthetic road scenes kappa reads 0.95 / 2.37 / 0.47 for true 1.0 / 2.5 / 0.5. Objects with kappa > 1.8 are never the lead; an unmeasurable kappa never suppresses.
+
+| Data | Lead-vehicle rule | + oncoming exclusion |
+|---|---|---|
+| Dash-cam clips, 30 min | 51 raises (17.0 / 10 min) | **2 raises (0.67 / 10 min)** |
+| — per clip | 5 / 8 / 3 / 6 / 5 / 12 / 5 / 4 / 3 / 0 | 0 / 0 / 1 / 0 / 0 / 0 / 0 / 0 / 1 / 0 |
+| KITTI calibrated drives | 7.2 / 10 min | 7.2 / 10 min (1 raise: parked car on a bend, heading lag) |
+| EvTTC fused TTC error | 11.5% | 11.5% |
+| EvTTC warned by true TTC 2.0 s | 5 / 5 | 5 / 5 |
+
+## Known gap: late warnings for objects entering our path
+
+Synthetic road scenes on true collision courses (object reaches our centre line at contact): a pedestrian crossing at 1.0 m/s warns at true TTC **0.80 s**, a car cutting in at 0.86 s, a cyclist at 0.37 s. Lead vehicles (parked, slower) warn at 2.17–2.60 s. The lead-vehicle rule only lets an object warn once it overlaps our width; crossing objects get there late. A pedestrian who clears our path correctly does not warn. Next: predicted path entry with a stability gate, measured against both the crossing tests and the false-alarm data.
+
 ## To finish this report
 
-1. Bring false alarms below 1 per 10 min (see the lead-vehicle section).
+1. Close the late-warning gap for crossing and cut-in targets without losing the false-alarm result.
