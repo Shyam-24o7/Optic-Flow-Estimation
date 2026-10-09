@@ -2,11 +2,13 @@
 
 // Raster scan. At stream position (x, y) the 3x3 window of S = prev + curr is complete for the
 // centre pixel (x - 1, y - 1); Et and the coordinates are taken for that same centre.
-void ttc_engine(hls::stream<Pixel>& in, const BoxRect boxes[kMaxBoxes], ap_uint<5> n_boxes, ap_uint<10> width,
+void ttc_engine(hls::stream<Pixel>& in, const BoxRect boxes[kMaxBoxes], const BoxRect flow_boxes[kMaxBoxes],
+                ap_uint<5> n_boxes, ap_uint<10> width,
                 ap_uint<10> height, ap_int<11> px, ap_int<11> py, ap_uint<13> threshold,
                 ap_int<64> sums[kMaxBoxes][kTerms]) {
 #pragma HLS INTERFACE axis port = in
 #pragma HLS INTERFACE s_axilite port = boxes bundle = control
+#pragma HLS INTERFACE s_axilite port = flow_boxes bundle = control
 #pragma HLS INTERFACE s_axilite port = n_boxes bundle = control
 #pragma HLS INTERFACE s_axilite port = width bundle = control
 #pragma HLS INTERFACE s_axilite port = height bundle = control
@@ -16,9 +18,13 @@ void ttc_engine(hls::stream<Pixel>& in, const BoxRect boxes[kMaxBoxes], ap_uint<
 #pragma HLS INTERFACE m_axi port = sums offset = slave bundle = gmem
 #pragma HLS INTERFACE s_axilite port = return bundle = control
 
-  BoxRect box[kMaxBoxes];
+  BoxRect box[kMaxBoxes], fbox[kMaxBoxes];
 #pragma HLS ARRAY_PARTITION variable = box complete
-  for (int b = 0; b < kMaxBoxes; ++b) box[b] = boxes[b];
+#pragma HLS ARRAY_PARTITION variable = fbox complete
+  for (int b = 0; b < kMaxBoxes; ++b) {
+    box[b] = boxes[b];
+    fbox[b] = flow_boxes[b];
+  }
 
   ap_int<64> acc[kMaxBoxes][kTerms];
 #pragma HLS ARRAY_PARTITION variable = acc complete dim = 0
@@ -39,6 +45,30 @@ rows:
 #pragma HLS PIPELINE II = 1
 #pragma HLS LOOP_TRIPCOUNT min = 512 max = 512
       const Pixel p = in.read();
+
+      // Flow moments need no neighbours: accumulate at the stream position itself.
+      {
+        const ap_int<11> fx = x - px, fy = y - py;
+        ap_int<64> fm[kFlowTerms];
+#pragma HLS ARRAY_PARTITION variable = fm complete
+        fm[0] = 1;
+        fm[1] = fx;
+        fm[2] = fy;
+        fm[3] = ap_int<64>(fx) * fx;
+        fm[4] = ap_int<64>(fx) * fy;
+        fm[5] = ap_int<64>(fy) * fy;
+        fm[6] = p.u;
+        fm[7] = p.v;
+        fm[8] = ap_int<64>(fx) * p.u;
+        fm[9] = ap_int<64>(fy) * p.u;
+        fm[10] = ap_int<64>(fx) * p.v;
+        fm[11] = ap_int<64>(fy) * p.v;
+        for (int b = 0; b < kMaxBoxes; ++b) {
+          const bool inside = b < n_boxes && x >= fbox[b].x1 && x < fbox[b].x2 && y >= fbox[b].y1 && y < fbox[b].y2;
+          if (inside)
+            for (int k = 0; k < kFlowTerms; ++k) acc[b][kHornTerms + k] += fm[k];
+        }
+      }
       const ap_uint<9> s_new = p.prev + p.curr;
       const ap_int<9> d_new = ap_int<9>(p.curr) - ap_int<9>(p.prev);
 
@@ -69,7 +99,7 @@ rows:
       const ap_int<11> rx = cx - px, ry = cy - py;
       const ap_int<22> g = rx * ex + ry * ey;
       // Products computed once per pixel, shared by every box.
-      ap_int<64> prod[kTerms];
+      ap_int<64> prod[kHornTerms];
 #pragma HLS ARRAY_PARTITION variable = prod complete
       prod[0] = ap_int<64>(ex) * ex;
       prod[1] = ap_int<64>(ex) * ey;
@@ -85,7 +115,7 @@ rows:
       for (int b = 0; b < kMaxBoxes; ++b) {
         const bool inside = b < n_boxes && cx >= box[b].x1 && cx < box[b].x2 && cy >= box[b].y1 && cy < box[b].y2;
         if (inside)
-          for (int k = 0; k < kTerms; ++k) acc[b][k] += prod[k];
+          for (int k = 0; k < kHornTerms; ++k) acc[b][k] += prod[k];
       }
     }
   }

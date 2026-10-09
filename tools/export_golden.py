@@ -469,7 +469,9 @@ def export_pipeline(out: Path) -> None:
 def export_hls(out: Path) -> None:
     """Plain files for the HLS testbench (no OpenCV in C-simulation): hls/ttc_engine/golden/<case>/."""
     from collision_avoidance.fcw import synth
+    from collision_avoidance.fcw.divergence import flow_moments_fixed, flow_rect, quantise_flow
     from collision_avoidance.fcw.horn import HornConfig, horn_sums, inner_box
+    from collision_avoidance.fcw.pipeline import DisFlow
 
     root = Path("hls/ttc_engine/golden")
     rng = np.random.default_rng(5)
@@ -479,28 +481,36 @@ def export_hls(out: Path) -> None:
     checker = np.kron((np.indices((192, 256)).sum(axis=0) % 2) * 255, np.ones((2, 2))).astype(np.uint8)
     flat = np.full((384, 512), 128, np.uint8)
     overlapping = [(5, 5, 40, 30), (20, 10, 60, 45), (30, 20, 50, 40)]
+    rand_flow = quantise_flow(rng.uniform(-5, 5, (48, 64, 2)))
+    approach_flow = quantise_flow(DisFlow()(scene.frames[19], scene.frames[20]))
+    extreme_flow = np.full((384, 512, 2), 32767, np.int16)          # largest products: overflow check
+    extreme_flow[::2, :, 1] = -32768
     cases = {
-        "random_overlap": (rand_prev, rand_curr, overlapping, (32, 24), HornConfig(shrink=0.0, grad_threshold_l1=0)),
-        "random_threshold": (rand_prev, rand_curr, overlapping, (32, 24), HornConfig(shrink=0.0, grad_threshold_l1=300)),
-        "approach": (scene.frames[19], scene.frames[20], [tuple(scene.boxes[20])], (256, 192), HornConfig()),
-        "checker": (checker, checker, [(1, 1, 511, 383)], (256, 192), HornConfig(shrink=0.0, grad_threshold_l1=0)),
-        "flat": (flat, flat, [(100, 100, 200, 200)], (256, 192), HornConfig()),
+        "random_overlap": (rand_prev, rand_curr, rand_flow, overlapping, (32, 24), HornConfig(shrink=0.0, grad_threshold_l1=0)),
+        "random_threshold": (rand_prev, rand_curr, rand_flow, overlapping, (32, 24), HornConfig(shrink=0.0, grad_threshold_l1=300)),
+        "approach": (scene.frames[19], scene.frames[20], approach_flow, [tuple(scene.boxes[20])], (256, 192), HornConfig()),
+        "checker": (checker, checker, extreme_flow, [(0, 0, 512, 384)], (256, 192), HornConfig(shrink=0.0, grad_threshold_l1=0)),
+        "flat": (flat, flat, np.zeros((384, 512, 2), np.int16), [(100, 100, 200, 200)], (256, 192), HornConfig()),
     }
-    for name, (prev, curr, boxes, pp, cfg) in cases.items():
+    for name, (prev, curr, flow_q, boxes, pp, cfg) in cases.items():
         d = root / name
         d.mkdir(parents=True, exist_ok=True)
         h, w = curr.shape
         prev.tofile(d / "prev.bin")
         curr.tofile(d / "curr.bin")
+        flow_q.tofile(d / "flow.bin")           # int16 u, v interleaved, row-major
         px, py = int(round(pp[0])), int(round(pp[1]))
         (d / "params.txt").write_text(f"{w} {h} {px} {py} {cfg.grad_threshold_l1}\n")
-        rect_lines, expected_lines = [], []
+        rect_lines, flow_rect_lines, expected_lines = [], [], []
         for box in boxes:
             rect = inner_box(box, cfg.shrink, w, h)
             sums, n = horn_sums(prev, curr, box, pp, cfg)
+            moments = flow_moments_fixed(flow_q, box, pp, cfg.shrink)
             rect_lines.append(" ".join(map(str, rect)))
-            expected_lines.append(" ".join(str(int(v)) for v in sums) + f" {n}")
+            flow_rect_lines.append(" ".join(map(str, flow_rect(box, cfg.shrink, w, h))))
+            expected_lines.append(" ".join(str(int(v)) for v in sums) + f" {n} " + " ".join(str(int(v)) for v in moments))
         (d / "boxes.txt").write_text("\n".join(rect_lines) + "\n")
+        (d / "flow_boxes.txt").write_text("\n".join(flow_rect_lines) + "\n")
         (d / "expected.txt").write_text("\n".join(expected_lines) + "\n")
         print("wrote", d)
 

@@ -22,6 +22,8 @@ static int runCase(const std::string& name) {
   int w, h, px, py, thr;
   std::ifstream(dir + "params.txt") >> w >> h >> px >> py >> thr;
   const std::vector<uint8_t> prev = readBytes(dir + "prev.bin"), curr = readBytes(dir + "curr.bin");
+  const std::vector<uint8_t> flow_bytes = readBytes(dir + "flow.bin");
+  const int16_t* flow = reinterpret_cast<const int16_t*>(flow_bytes.data());  // u, v interleaved
   if (static_cast<int>(prev.size()) != w * h || static_cast<int>(curr.size()) != w * h) {
     std::printf("%s: frame size mismatch\n", name.c_str());
     return 1;
@@ -30,11 +32,15 @@ static int runCase(const std::string& name) {
   int n = 0;
   std::ifstream bf(dir + "boxes.txt");
   for (int x1, y1, x2, y2; bf >> x1 >> y1 >> x2 >> y2;) boxes[n++] = {x1, y1, x2, y2};
+  BoxRect flow_boxes[kMaxBoxes] = {};
+  int nf = 0;
+  std::ifstream ff(dir + "flow_boxes.txt");
+  for (int x1, y1, x2, y2; ff >> x1 >> y1 >> x2 >> y2;) flow_boxes[nf++] = {x1, y1, x2, y2};
 
   hls::stream<Pixel> in;
-  for (int i = 0; i < w * h; ++i) in.write({prev[i], curr[i], 0, 0});
+  for (int i = 0; i < w * h; ++i) in.write({prev[i], curr[i], flow[2 * i], flow[2 * i + 1]});
   static ap_int<64> sums[kMaxBoxes][kTerms];
-  ttc_engine(in, boxes, n, w, h, px, py, thr, sums);
+  ttc_engine(in, boxes, flow_boxes, n, w, h, px, py, thr, sums);
 
   std::ifstream ef(dir + "expected.txt");
   int failures = 0;

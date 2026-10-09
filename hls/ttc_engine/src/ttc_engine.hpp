@@ -8,8 +8,11 @@
 
 constexpr int kMaxWidth = 512;
 constexpr int kMaxBoxes = 16;
-// 10 Horn sums (Ex^2, ExEy, ExG, Ey^2, EyG, G^2, ExEt, EyEt, GEt, Et^2) + pixel count.
-constexpr int kTerms = 11;
+// 10 Horn sums (Ex^2, ExEy, ExG, Ey^2, EyG, G^2, ExEt, EyEt, GEt, Et^2) + Horn pixel count,
+// then 12 flow moments (n, x, y, xx, xy, yy, u, v, xu, yu, xv, yv; u, v in 1/64 px).
+constexpr int kHornTerms = 11;
+constexpr int kFlowTerms = 12;
+constexpr int kTerms = kHornTerms + kFlowTerms;
 
 struct Pixel {
   ap_uint<8> prev;
@@ -23,6 +26,7 @@ struct BoxRect {
   ap_uint<10> x1, y1, x2, y2;
 };
 
-void ttc_engine(hls::stream<Pixel>& in, const BoxRect boxes[kMaxBoxes], ap_uint<5> n_boxes, ap_uint<10> width,
+void ttc_engine(hls::stream<Pixel>& in, const BoxRect boxes[kMaxBoxes], const BoxRect flow_boxes[kMaxBoxes],
+                ap_uint<5> n_boxes, ap_uint<10> width,
                 ap_uint<10> height, ap_int<11> px, ap_int<11> py, ap_uint<13> threshold,
                 ap_int<64> sums[kMaxBoxes][kTerms]);

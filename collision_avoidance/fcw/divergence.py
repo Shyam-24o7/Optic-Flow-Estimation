@@ -47,6 +47,45 @@ def flow_moments(flow: np.ndarray, box, principal_point, mask: np.ndarray | None
                      u.sum(), v.sum(), (x * u).sum(), (y * u).sum(), (x * v).sum(), (y * v).sum()])
 
 
+FLOW_SCALE = 64  # PL engine flow format: int16 in 1/64 px (+-512 px)
+
+
+def quantise_flow(flow: np.ndarray) -> np.ndarray:
+    """Flow (H, W, 2) in px -> int16 in 1/FLOW_SCALE px, as streamed to the PL engine."""
+    return np.clip(np.round(flow * FLOW_SCALE), -32768, 32767).astype(np.int16)
+
+
+def flow_moments_fixed(flow_q: np.ndarray, box, principal_point, shrink: float = 0.10) -> np.ndarray | None:
+    """The 12 FLOW_TERMS as exact int64 sums (u, v in 1/FLOW_SCALE px; x, y from the rounded principal point).
+
+    Golden model of the PL engine's flow-moment accumulators. Divide the u/v terms
+    (indices 6..11) by FLOW_SCALE to get flow_moments() of the dequantised flow.
+    """
+    h, w = flow_q.shape[:2]
+    x1, y1, x2, y2 = map(float, box)
+    mx, my = shrink / 2 * (x2 - x1), shrink / 2 * (y2 - y1)
+    ix1, iy1 = max(0, int(np.ceil(x1 + mx))), max(0, int(np.ceil(y1 + my)))
+    ix2, iy2 = min(w, int(np.floor(x2 - mx))), min(h, int(np.floor(y2 - my)))
+    if ix2 <= ix1 or iy2 <= iy1:
+        return None
+    px, py = int(round(principal_point[0])), int(round(principal_point[1]))
+    ys, xs = np.mgrid[iy1:iy2, ix1:ix2]
+    x, y = (xs - px).astype(np.int64), (ys - py).astype(np.int64)
+    u = flow_q[iy1:iy2, ix1:ix2, 0].astype(np.int64)
+    v = flow_q[iy1:iy2, ix1:ix2, 1].astype(np.int64)
+    return np.array([x.size, x.sum(), y.sum(), (x * x).sum(), (x * y).sum(), (y * y).sum(),
+                     u.sum(), v.sum(), (x * u).sum(), (y * u).sum(), (x * v).sum(), (y * v).sum()], dtype=np.int64)
+
+
+def flow_rect(box, shrink: float, width: int, height: int) -> tuple[int, int, int, int] | None:
+    """Integer [x1, x2) x [y1, y2) that flow_moments / flow_moments_fixed sum over."""
+    x1, y1, x2, y2 = map(float, box)
+    mx, my = shrink / 2 * (x2 - x1), shrink / 2 * (y2 - y1)
+    ix1, iy1 = max(0, int(np.ceil(x1 + mx))), max(0, int(np.ceil(y1 + my)))
+    ix2, iy2 = min(width, int(np.floor(x2 - mx))), min(height, int(np.floor(y2 - my)))
+    return (ix1, iy1, ix2, iy2) if ix2 > ix1 and iy2 > iy1 else None
+
+
 def affine_from_moments(m: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
     """(a0, a1, a2), (b0, b1, b2) of the least-squares affine flow."""
     n, sx, sy, sxx, sxy, syy, su, sv, sxu, syu, sxv, syv = m

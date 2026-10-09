@@ -57,3 +57,18 @@ def test_ransac_samples_are_reproducible_across_languages():
     assert samples == ransac_samples(1000, 4, seed=0)
     assert all(len(set(s)) == 3 and all(0 <= i < 1000 for i in s) for s in samples)
     assert samples[0] == (502, 397, 989)   # pinned: the C++ test checks the same first triple
+
+
+def test_fixed_point_moments_are_exact_for_quantised_flow_and_close_to_float():
+    # The PL engine gets flow as int16 in 1/64 px and sums integers; this is its golden model.
+    from collision_avoidance.fcw.divergence import FLOW_SCALE, flow_moments_fixed, quantise_flow
+    rate = 0.02
+    flow = looming_flow(rate, lateral=(1.3, -0.7))
+    q = quantise_flow(flow)
+    fixed = flow_moments_fixed(q, BOX, (256, 192))
+    assert fixed.dtype == np.int64
+    as_float = fixed.astype(np.float64)
+    as_float[6:] /= FLOW_SCALE                        # u, v terms back to pixels
+    np.testing.assert_array_equal(as_float, flow_moments(q.astype(np.float64) / FLOW_SCALE, BOX, (256, 192)))
+    m = divergence_ttc(as_float, BOX, 0.0, 1, DT)
+    assert m.ttc_s == pytest.approx(1 / (rate * 30), rel=0.01)
