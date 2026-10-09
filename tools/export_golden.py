@@ -466,7 +466,46 @@ def export_pipeline(out: Path) -> None:
     w.close()
 
 
-EXPORTERS = {"harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale, "horn": export_horn,
+def export_hls(out: Path) -> None:
+    """Plain files for the HLS testbench (no OpenCV in C-simulation): hls/ttc_engine/golden/<case>/."""
+    from collision_avoidance.fcw import synth
+    from collision_avoidance.fcw.horn import HornConfig, horn_sums, inner_box
+
+    root = Path("hls/ttc_engine/golden")
+    rng = np.random.default_rng(5)
+    rand_prev = rng.integers(0, 256, (48, 64), dtype=np.uint8)
+    rand_curr = rng.integers(0, 256, (48, 64), dtype=np.uint8)
+    scene = synth.render_scene(synth.SceneConfig(n_frames=21))
+    checker = np.kron((np.indices((192, 256)).sum(axis=0) % 2) * 255, np.ones((2, 2))).astype(np.uint8)
+    flat = np.full((384, 512), 128, np.uint8)
+    overlapping = [(5, 5, 40, 30), (20, 10, 60, 45), (30, 20, 50, 40)]
+    cases = {
+        "random_overlap": (rand_prev, rand_curr, overlapping, (32, 24), HornConfig(shrink=0.0, grad_threshold_l1=0)),
+        "random_threshold": (rand_prev, rand_curr, overlapping, (32, 24), HornConfig(shrink=0.0, grad_threshold_l1=300)),
+        "approach": (scene.frames[19], scene.frames[20], [tuple(scene.boxes[20])], (256, 192), HornConfig()),
+        "checker": (checker, checker, [(1, 1, 511, 383)], (256, 192), HornConfig(shrink=0.0, grad_threshold_l1=0)),
+        "flat": (flat, flat, [(100, 100, 200, 200)], (256, 192), HornConfig()),
+    }
+    for name, (prev, curr, boxes, pp, cfg) in cases.items():
+        d = root / name
+        d.mkdir(parents=True, exist_ok=True)
+        h, w = curr.shape
+        prev.tofile(d / "prev.bin")
+        curr.tofile(d / "curr.bin")
+        px, py = int(round(pp[0])), int(round(pp[1]))
+        (d / "params.txt").write_text(f"{w} {h} {px} {py} {cfg.grad_threshold_l1}\n")
+        rect_lines, expected_lines = [], []
+        for box in boxes:
+            rect = inner_box(box, cfg.shrink, w, h)
+            sums, n = horn_sums(prev, curr, box, pp, cfg)
+            rect_lines.append(" ".join(map(str, rect)))
+            expected_lines.append(" ".join(str(int(v)) for v in sums) + f" {n}")
+        (d / "boxes.txt").write_text("\n".join(rect_lines) + "\n")
+        (d / "expected.txt").write_text("\n".join(expected_lines) + "\n")
+        print("wrote", d)
+
+
+EXPORTERS = {"hls": export_hls, "harness": export_harness, "tracker": export_tracker, "ego": export_ego, "scale": export_scale, "horn": export_horn,
              "divergence": export_divergence, "fusion": export_fusion, "collision": export_collision, "pipeline": export_pipeline}
 
 
