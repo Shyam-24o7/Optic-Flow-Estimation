@@ -28,10 +28,11 @@ void replay(const std::string& name) {
   if (!std::filesystem::exists(local + "/pipeline.yml.gz")) GTEST_SKIP() << "run tools/export_golden.py --only pipeline";
   golden::File g("pipeline", local);
   int current = 0;
+  const std::string class_name = g.str(name + "_class");
   auto detector = [&](const cv::Mat&) {
     std::vector<fcw::Detection> out;
     const cv::Mat d = g.mat(name + "_f" + std::to_string(current) + "_dets");
-    for (int r = 0; r < d.rows; ++r) out.push_back({{d.at<double>(r, 0), d.at<double>(r, 1), d.at<double>(r, 2), d.at<double>(r, 3)}, "car", 0.9});
+    for (int r = 0; r < d.rows; ++r) out.push_back({{d.at<double>(r, 0), d.at<double>(r, 1), d.at<double>(r, 2), d.at<double>(r, 3)}, class_name, 0.9});
     return out;
   };
   auto flow = [&](const cv::Mat&, const cv::Mat&) { return readFlow16(local + "/" + g.str(name + "_f" + std::to_string(current) + "_flow")); };
@@ -83,3 +84,4 @@ TEST(PipelineParity, OutOfOrderTimestamps) { replay("out_of_order"); }
 TEST(PipelineParity, TwentyTracksSelectSixteen) { replay("twenty"); }
 TEST(PipelineParity, OncomingOnTheRoadIsNotTheLead) { replay("ground_oncoming"); }
 TEST(PipelineParity, ParkedOnTheRoadStillWarns) { replay("ground_parked"); }
+TEST(PipelineParity, PedestrianCrossingIntoOurPath) { replay("ground_crossing"); }

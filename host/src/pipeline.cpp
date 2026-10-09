@@ -103,6 +103,7 @@ FcwFrame FcwPipeline::process(const cv::Mat& frame_bgr, double t) {
   closing_.retain(live);
   for (auto it = fsms_.begin(); it != fsms_.end();) it = tracks.count(it->first) ? std::next(it) : fsms_.erase(it);
   for (auto it = in_path_streak_.begin(); it != in_path_streak_.end();) it = tracks.count(it->first) ? std::next(it) : in_path_streak_.erase(it);
+  for (auto it = entry_streak_.begin(); it != entry_streak_.end();) it = tracks.count(it->first) ? std::next(it) : entry_streak_.erase(it);
   on_course_.clear();
   for (const auto& o : out.objects)
     if (o.course && o.course->in_path) on_course_.insert(o.track_id);
@@ -172,7 +173,8 @@ ObjectResult FcwPipeline::assess(const ScaleTrack& track, const cv::Mat& gray, c
   lap("divergence");
   res.estimate = fusion_.update(track.id, t, dt, res.measurements);
   const std::optional<double> ttc = res.estimate ? res.estimate->ttc_s : std::nullopt;
-  res.course = course_.update(track.id, t, box, track.cls, heading.x, heading.y, ttc, yaw_rate);
+  res.course = course_.update(track.id, t, box, track.cls, heading.x, heading.y, ttc, yaw_rate, gray.size(),
+                              cv::Matx33d(K_ * ego.R * K_.inv()), pp_.x);
   lap("fusion_course");
   return res;
 }
@@ -188,26 +190,40 @@ void FcwPipeline::warn(std::vector<ObjectResult>& objects, const std::map<int, S
     for (const auto& o : objects) boxes.push_back(o.bbox);
     c = closing_.updateC(roadConstant(flow, *ego.foe, ego.R, K_, boxes, cfg_.closing));
   }
+  // Lead candidates: in our path now, or steadily entering it (predicted in path at contact, moving
+  // towards it, close enough). Crossing pedestrians and cut-ins only overlap us shortly before contact.
+  const CourseConfig& cc = cfg_.course;
   const ObjectResult* lead = nullptr;
   double lead_dist = 0;
   for (auto& o : objects) {
-    bool in_path = o.course && o.course->in_path && !tracks.at(o.track_id).lost;
-    if (in_path && cfg_.closing.enabled) {
+    const bool lost = tracks.at(o.track_id).lost > 0;
+    const auto& co = o.course;
+    bool in_path = co && co->in_path && !lost;
+    const std::optional<double> ttc = o.estimate ? o.estimate->ttc_s : std::nullopt;
+    bool entering = co && !lost && !co->in_path && co->on_course && co->r_contact && ttc && *ttc != 0 && co->width_m &&
+                    std::abs(co->r) * *co->width_m <= cc.max_entry_m && co->r * (*co->r_contact - co->r) < 0 &&
+                    co->entry_speed_mps && *co->entry_speed_mps >= cc.min_entry_speed_mps;
+    if ((in_path || entering) && cfg_.closing.enabled) {
       std::optional<double> kappa;
-      if (c && ego.foe && o.estimate && o.estimate->ttc_s)
-        if (auto s = staticTtc(*c, o.bbox, *ego.foe, cfg_.closing)) kappa = *s * dt / *o.estimate->ttc_s;
+      if (c && ego.foe && ttc)
+        if (auto s = staticTtc(*c, o.bbox, *ego.foe, cfg_.closing)) kappa = *s * dt / *ttc;
       o.kappa = closing_.update(o.track_id, kappa);
-      in_path = !o.kappa || *o.kappa <= cfg_.closing.oncoming_kappa;
+      if (o.kappa && *o.kappa > cfg_.closing.oncoming_kappa) in_path = entering = false;
     }
+    // Entry is a prediction, so it needs positive evidence the object is not oncoming: with kappa
+    // unknown (e.g. we are stopped, so the road does not move) only objects already in our path warn.
+    entering = entering && cfg_.closing.enabled && o.kappa.has_value();
     int& streak = in_path_streak_[o.track_id];
     streak = in_path ? streak + 1 : 0;
-    if (!streak) continue;
+    int& entry = entry_streak_[o.track_id];
+    entry = (in_path || entering) ? entry + 1 : 0;
+    if (!entry) continue;
     const double dist = *o.course->width_m / std::max(o.bbox.x2 - o.bbox.x1, 1.0);  // distance ~ W_obj / w
     if (!lead || dist < lead_dist) { lead = &o; lead_dist = dist; }
   }
   for (auto& o : objects) {
     const bool ok = lead && o.track_id == lead->track_id && o.course->on_course &&
-                    in_path_streak_[o.track_id] >= cfg_.course.in_path_frames;
+                    (in_path_streak_[o.track_id] >= cc.in_path_frames || entry_streak_[o.track_id] >= cc.entry_frames);
     WarningFsm& fsm = fsms_.try_emplace(o.track_id, cfg_.warning).first->second;
     o.level = fsm.step(ok, o.estimate ? o.estimate->ttc_s : std::nullopt, o.estimate ? o.estimate->sigma_ttc_s : std::nullopt,
                        o.estimate ? static_cast<int>(o.estimate->recent_methods.size()) : 0);

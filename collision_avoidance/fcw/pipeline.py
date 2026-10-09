@@ -116,6 +116,7 @@ class FcwPipeline:
         self._prev_t: float | None = None
         self._on_course: set[int] = set()
         self._in_path_streak: dict[int, int] = {}
+        self._entry_streak: dict[int, int] = {}
         self.closing = ClosingTracker(cfg.closing)
 
     def process(self, frame_bgr: np.ndarray, t: float) -> FcwFrame:
@@ -158,6 +159,7 @@ class FcwPipeline:
         self.closing.retain(live)
         self.fsms = {tid: f for tid, f in self.fsms.items() if tid in tracks}
         self._in_path_streak = {tid: n for tid, n in self._in_path_streak.items() if tid in tracks}
+        self._entry_streak = {tid: n for tid, n in self._entry_streak.items() if tid in tracks}
         self._on_course = {o.track_id for o in objects if o.course and o.course.in_path}
         timings["ttc"] = (time.perf_counter() - mark) * 1e3
         timings["total"] = (time.perf_counter() - t0) * 1e3
@@ -209,30 +211,46 @@ class FcwPipeline:
                 measurements.append(m)
         estimate = self.fusion.update(track.id, t, dt, measurements)
         ttc = estimate.ttc_s if estimate else None
-        course = self.course.update(track.id, t, box, track.class_name, heading[0], heading[1], ttc, yaw_rate)
+        course = self.course.update(track.id, t, box, track.class_name, heading[0], heading[1], ttc, yaw_rate,
+                                    (gray.shape[1], gray.shape[0]), self.K @ ego.R @ np.linalg.inv(self.K), self.pp[0])
         return ObjectResult(track.id, box, track.class_name, estimate, course, Level.NONE, measurements)
 
     def _warn(self, objects: list[ObjectResult], tracks: dict[int, ScaleTrack], flow, ego: EgoMotion, dt: float) -> None:
-        """Only the lead vehicle may warn: the nearest object in our path, in path for a few frames.
+        """Only the lead vehicle may warn: the nearest object in our path or steadily entering it.
 
-        A lost track is a prediction, not an observation: it is never the lead. Neither is an
-        object closing clearly faster than we drive (oncoming traffic, see closing.py).
+        In path: overlaps our width now, for in_path_frames. Entering: predicted in our path at
+        contact, moving towards it and within max_entry_m, for entry_frames (crossing pedestrians
+        and cut-ins only overlap us shortly before contact). A lost track is a prediction, not an
+        observation: never the lead. Neither is an object closing clearly faster than we drive
+        (oncoming traffic, see closing.py).
         """
+        cc = self.cfg.course
         c = None
         if self.cfg.closing.enabled and ego.foe is not None:
             c = self.closing.update_c(road_constant(flow, ego.foe, ego.R, self.K, [o.bbox for o in objects], self.cfg.closing))
         for o in objects:
-            in_path = o.course is not None and o.course.in_path and not tracks[o.track_id].lost
-            if in_path and self.cfg.closing.enabled:
+            co, lost = o.course, tracks[o.track_id].lost
+            in_path = co is not None and co.in_path and not lost
+            ttc = o.estimate.ttc_s if o.estimate else None
+            entering = (co is not None and not lost and not co.in_path and co.on_course and co.r_contact is not None
+                        and ttc and co.width_m is not None and abs(co.r) * co.width_m <= cc.max_entry_m
+                        and co.r * (co.r_contact - co.r) < 0           # offset shrinking towards our path
+                        and co.entry_speed_mps is not None and co.entry_speed_mps >= cc.min_entry_speed_mps)
+            if (in_path or entering) and self.cfg.closing.enabled:
                 o.kappa = self.closing.update(o.track_id, self._kappa(o, c, ego, dt))
-                in_path = o.kappa is None or o.kappa <= self.cfg.closing.oncoming_kappa
+                if o.kappa is not None and o.kappa > self.cfg.closing.oncoming_kappa:
+                    in_path = entering = False
+            # Entry is a prediction, so it needs positive evidence the object is not oncoming: with kappa
+            # unknown (e.g. we are stopped, so the road does not move) only objects already in our path warn.
+            entering = entering and self.cfg.closing.enabled and o.kappa is not None
             self._in_path_streak[o.track_id] = self._in_path_streak.get(o.track_id, 0) + 1 if in_path else 0
-        candidates = [o for o in objects if self._in_path_streak[o.track_id] > 0]
+            self._entry_streak[o.track_id] = self._entry_streak.get(o.track_id, 0) + 1 if (in_path or entering) else 0
+        candidates = [o for o in objects if self._entry_streak[o.track_id] > 0]
         # Nearest = largest metric width in pixels: distance is proportional to W_obj / w.
         lead = min(candidates, key=lambda o: o.course.width_m / max(o.bbox[2] - o.bbox[0], 1.0), default=None)
         for o in objects:
             e = o.estimate
             ok = (lead is not None and o.track_id == lead.track_id and o.course.on_course
-                  and self._in_path_streak[o.track_id] >= self.cfg.course.in_path_frames)
+                  and (self._in_path_streak[o.track_id] >= cc.in_path_frames or self._entry_streak[o.track_id] >= cc.entry_frames))
             fsm = self.fsms.setdefault(o.track_id, WarningFsm(self.cfg.warning))
             o.level = fsm.step(ok, e.ttc_s if e else None, e.sigma_ttc_s if e else None, len(e.recent_methods) if e else 0)

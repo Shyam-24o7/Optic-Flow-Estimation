@@ -79,12 +79,14 @@ TEST(CollisionParity, CourseCheckSequence) {
     const auto res = checker.update(static_cast<int>(in.at<double>(0, 0)), in.at<double>(0, 1),
                                     {in.at<double>(0, 2), in.at<double>(0, 3), in.at<double>(0, 4), in.at<double>(0, 5)},
                                     classes.at(static_cast<int>(in.at<double>(0, 6))), in.at<double>(0, 7), in.at<double>(0, 8),
-                                    std::isnan(ttc) ? std::nullopt : std::optional<double>(ttc), in.at<double>(0, 10));
+                                    std::isnan(ttc) ? std::nullopt : std::optional<double>(ttc), in.at<double>(0, 10), cv::Size(512, 384),
+                                    cv::Matx33d(g.mat(k + "_rot")), 256.0);
     EXPECT_EQ(res.on_course, out.at<double>(0, 0) != 0) << k;
     EXPECT_NEAR(res.r, out.at<double>(0, 1), 1e-12) << k;
     expectNearOrNan(res.r_contact ? *res.r_contact : NAN, out.at<double>(0, 2), 1e-9, k + " r_contact");
     EXPECT_NEAR(res.threshold, out.at<double>(0, 3), 1e-12) << k;
     EXPECT_EQ(res.in_path, out.at<double>(0, 4) != 0) << k;
+    expectNearOrNan(res.entry_speed_mps ? *res.entry_speed_mps : NAN, out.at<double>(0, 5), 1e-9 * (1 + std::abs(out.at<double>(0, 5))), k + " entry_speed");
   }
 }
 

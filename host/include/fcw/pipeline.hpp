@@ -106,6 +106,7 @@ class FcwPipeline {
   std::optional<double> prev_t_;
   std::set<int> on_course_;
   std::map<int, int> in_path_streak_;
+  std::map<int, int> entry_streak_;
   std::map<std::string, double>* timings_ = nullptr;  // per-method accumulators during process()
   ClosingTracker closing_;
   void warn(std::vector<ObjectResult>& objects, const std::map<int, ScaleTrack>& tracks, const cv::Mat& flow,

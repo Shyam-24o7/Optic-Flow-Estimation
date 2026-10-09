@@ -385,14 +385,19 @@ def export_collision(out: Path) -> None:
                     None if rng.random() < 0.1 else float(rng.uniform(0.0, 0.5)), int(rng.integers(0, 5))))
     w = Writer(out, "collision")
     w.str("classes", ",".join(classes))
+    K_COLL = np.array([[500.0, 0, 256.0], [0, 500.0, 192.0], [0, 0, 1]])
     checker = CourseChecker()
     w.num("course_steps", len(course))
     for i, (t, box, cls, hx, hy, ttc, yaw) in enumerate(course):
         k = f"course_s{i}"
         tid = i % 3
         w.mat(f"{k}_in", np.array([[tid, t, *box, classes.index(cls), hx, hy, np.nan if ttc is None else ttc, yaw]]))
-        r = checker.update(tid, t, box, cls, hx, hy, ttc, yaw)
-        w.mat(f"{k}_out", np.array([[r.on_course, r.r, np.nan if r.r_contact is None else r.r_contact, r.threshold, r.in_path]], float))
+        a = yaw / 30   # a small rotation per step exercises the derotation of the entry speed
+        H = K_COLL @ np.array([[np.cos(a), 0, np.sin(a)], [0, 1, 0], [-np.sin(a), 0, np.cos(a)]]) @ np.linalg.inv(K_COLL)
+        w.mat(f"{k}_rot", H)
+        r = checker.update(tid, t, box, cls, hx, hy, ttc, yaw, (512, 384), H, 256.0)   # some boxes leave the image: clipped
+        w.mat(f"{k}_out", np.array([[r.on_course, r.r, np.nan if r.r_contact is None else r.r_contact, r.threshold, r.in_path,
+                                     np.nan if r.entry_speed_mps is None else r.entry_speed_mps]], float))
     machine = WarningFsm()
     w.num("fsm_steps", len(fsm))
     w.mat("fsm_in", np.array([[on, np.nan if t is None else t, np.nan if s is None else s, m] for on, t, s, m in fsm], float))
@@ -423,14 +428,15 @@ def export_pipeline(out: Path) -> None:
     }
     twenty = [np.array([10 + 30 * (i % 10), 100 + 60 * (i // 10), 35 + 30 * (i % 10), 150 + 60 * (i // 10)], float) for i in range(20)]
     w = Writer(local, "pipeline")
-    w.str("scenarios", ",".join([*scenarios, "ground_oncoming", "ground_parked", "twenty"]))
+    w.str("scenarios", ",".join([*scenarios, "ground_oncoming", "ground_parked", "ground_crossing", "twenty"]))
     dis = DisFlow()
 
-    def run(name, frames, boxes_per_frame, times):
+    def run(name, frames, boxes_per_frame, times, class_name="car"):
         state = {"i": 0}
+        w.str(f"{name}_class", class_name)
 
         def detector(_frame):
-            return [Detection(b, "car", 0.9) for b in boxes_per_frame[state["i"]]]
+            return [Detection(b, class_name, 0.9) for b in boxes_per_frame[state["i"]]]
 
         def flow_source(prev, curr):
             flow = dis(prev, curr).astype(np.float16)
@@ -464,8 +470,10 @@ def export_pipeline(out: Path) -> None:
     # Road plane + our own motion: exercises the closing-speed (oncoming) test end to end.
     scenarios["ground_oncoming"] = (synth.render_scene(synth.SceneConfig(n_frames=50, ground=True, ego_speed_mps=10.0, closing_speed_mps=25.0, z0_m=70.0)), list(range(50)), [i / 30 for i in range(50)])
     scenarios["ground_parked"] = (synth.render_scene(synth.SceneConfig(n_frames=60, ground=True, ego_speed_mps=10.0, closing_speed_mps=10.0, z0_m=30.0)), list(range(60)), [i / 30 for i in range(60)])
+    scenarios["ground_crossing"] = (synth.render_scene(synth.SceneConfig(n_frames=70, ground=True, ego_speed_mps=10.0, closing_speed_mps=10.0, z0_m=30.0, lateral_m=-3.0, lateral_speed_mps=1.0, obj_width_m=0.5, obj_height_m=1.7, obj_y_m=0.2)), list(range(70)), [i / 30 for i in range(70)])
     for name, (scene, idx, times) in scenarios.items():
-        run(name, [scene.frames[i] for i in idx], [[scene.boxes[i]] for i in idx], times)
+        run(name, [scene.frames[i] for i in idx], [[scene.boxes[i]] for i in idx], times,
+            "person" if name == "ground_crossing" else "car")
     tex = synth.texture(384, 512, 0)
     run("twenty", [tex] * 3, [twenty] * 3, [0.0, 1 / 30, 2 / 30])
     w.close()

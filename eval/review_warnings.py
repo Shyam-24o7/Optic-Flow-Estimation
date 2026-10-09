@@ -49,6 +49,9 @@ def review(video: Path, cfg: FcwConfig, detector, out: Path, log) -> list[np.nda
                     "video": video.name, "frame": i, "image": name, "class": o.class_name, "level": int(o.level),
                     "box": [round(float(v), 1) for v in o.bbox], "ttc": e.ttc_s, "sigma": e.sigma_ttc_s,
                     "r": c.r, "r_contact": c.r_contact, "threshold": c.threshold, "heading": [float(v) for v in r.heading],
+                    "in_path": bool(c.in_path), "width_m": c.width_m, "kappa": o.kappa,
+                    "in_path_streak": pipeline._in_path_streak.get(o.track_id, 0),
+                    "entry_streak": pipeline._entry_streak.get(o.track_id, 0),
                     "ego_valid": r.ego.valid, "ego_stationary": r.ego.stationary, "yaw_rate": float(r.ego.rvec[1] / r.dt_s),
                     "methods": {m.method: (1 / m.eta if m.eta > 0 else None) for m in o.measurements},
                 }) + "\n")

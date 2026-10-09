@@ -165,3 +165,34 @@ def test_parked_car_straight_ahead_still_warns():
     scene, levels = _scene_levels(synth.SceneConfig(n_frames=70, ground=True, ego_speed_mps=10.0, closing_speed_mps=10.0, z0_m=30.0))
     first = next(i for i, lv in enumerate(levels) if lv >= Level.WARNING)
     assert scene.ttc_s[first] >= 2.0
+
+
+def _first_warning_ttc(cls, scene_cfg):
+    scene = synth.render_scene(scene_cfg)
+    pipeline = FcwPipeline(FcwConfig(), lambda f: [Detection(scene.boxes[current], cls, 0.9)], DisFlow())
+    for current in range(len(scene.frames)):
+        if pipeline.process(cv2.cvtColor(scene.frames[current], cv2.COLOR_GRAY2BGR), current / 30).level >= Level.WARNING:
+            return scene.ttc_s[current]
+    return None
+
+
+_ROAD = dict(ground=True, ego_speed_mps=10.0, n_frames=85)
+
+
+def test_pedestrian_crossing_into_our_path_warns_early():
+    # Reaches our centre line exactly at contact: must be predicted, not waited for.
+    ttc = _first_warning_ttc("person", synth.SceneConfig(**_ROAD, closing_speed_mps=10.0, z0_m=30.0, lateral_m=-3.0,
+                                                         lateral_speed_mps=1.0, obj_width_m=0.5, obj_height_m=1.7, obj_y_m=0.2))
+    assert ttc is not None and ttc >= 1.5
+
+
+def test_car_cutting_into_our_lane_warns_early():
+    ttc = _first_warning_ttc("car", synth.SceneConfig(**_ROAD, closing_speed_mps=8.0, z0_m=25.0, lateral_m=3.0, lateral_speed_mps=-0.96))
+    assert ttc is not None and ttc >= 1.5
+
+
+def test_pedestrian_who_clears_our_path_does_not_warn():
+    # Crosses at 1.6 m/s: 1.8 m right of centre (0.65 m clear) by the time we arrive.
+    ttc = _first_warning_ttc("person", synth.SceneConfig(**_ROAD, closing_speed_mps=10.0, z0_m=30.0, lateral_m=-3.0,
+                                                         lateral_speed_mps=1.6, obj_width_m=0.5, obj_height_m=1.7, obj_y_m=0.2))
+    assert ttc is None
