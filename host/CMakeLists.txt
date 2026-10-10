@@ -24,6 +24,10 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/app_main.cpp)
   target_link_libraries(fcw_app PRIVATE fcw)
 endif()
 
+# CPU-only baseline (no FPGA, no DPU) for the latency and energy comparison
+add_executable(fcw_cpu_baseline ${CMAKE_CURRENT_SOURCE_DIR}/tools/cpu_baseline.cpp)
+target_link_libraries(fcw_cpu_baseline PRIVATE fcw)
+
 enable_testing()
 find_package(GTest REQUIRED)
 file(GLOB FCW_TESTS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_*.cpp)

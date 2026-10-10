@@ -47,5 +47,5 @@
 
   <path d="M182,284 H640" stroke="#2563eb" stroke-width="1.6" fill="none" marker-start="url(#a)" marker-end="url(#a)"/>
   <text x="411" y="302" text-anchor="middle" font-size="12" fill="#1e40af">frame N: capture → warning on screen ≈ 3–4 frame periods (target &lt; 100 ms)</text>
-  <text x="30" y="322" font-size="11" fill="#6b7280">Schematic. Measured on a laptop CPU: T3 = 11.2 ms per frame. On the KV260's Cortex-A53 this projects to roughly 35–45 ms (≈ 15–30 FPS); not yet measured on the board.</text>
+  <text x="30" y="322" font-size="11" fill="#6b7280">Schematic, drawn for 30 FPS. Laptop CPU: T3 = 7.5–11.2 ms per frame; one KV260 A53 core ≈ 120–180 ms (×15.9, PassMark), so T3 must use all 4 cores. Not yet measured.</text>
 </svg>

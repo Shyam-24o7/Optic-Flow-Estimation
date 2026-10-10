@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 470" width="900" height="470" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<rect width="900" height="470" fill="#ffffff"/>
+<text x="20" y="32" font-size="19" font-weight="700" fill="#111827">FPGA design vs CPU-only, per frame on the KV260</text>
+<text x="20" y="52" font-size="12.5" fill="#4b5563">ms per frame, log scale · CPU-only = plain single-threaded C++ (measured on a laptop core) scaled to a Cortex-A53 by PassMark (×15.9)</text>
+<rect x="20" y="66" width="14" height="14" rx="3" fill="#9ca3af"/><text x="40" y="78" font-size="12" fill="#111827">CPU-only, one A53 core (projected)</text>
+<rect x="260" y="66" width="14" height="14" rx="3" fill="#059669"/><text x="280" y="78" font-size="12" fill="#111827">FPGA design: PL + DPU + Arm (published / estimated)</text>
+<path d="M250.0,92 V430" stroke="#e5e7eb"/>
+<text x="250.0" y="446" text-anchor="middle" font-size="11" fill="#6b7280">0.1</text>
+<path d="M320.0,92 V430" stroke="#e5e7eb"/>
+<text x="320.0" y="446" text-anchor="middle" font-size="11" fill="#6b7280">1</text>
+<path d="M390.0,92 V430" stroke="#e5e7eb"/>
+<text x="390.0" y="446" text-anchor="middle" font-size="11" fill="#6b7280">10</text>
+<path d="M460.0,92 V430" stroke="#e5e7eb"/>
+<text x="460.0" y="446" text-anchor="middle" font-size="11" fill="#6b7280">100</text>
+<path d="M530.0,92 V430" stroke="#e5e7eb"/>
+<text x="530.0" y="446" text-anchor="middle" font-size="11" fill="#6b7280">1 s</text>
+<path d="M600.0,92 V430" stroke="#e5e7eb"/>
+<text x="600.0" y="446" text-anchor="middle" font-size="11" fill="#6b7280">10 s</text>
+<path d="M670.0,92 V430" stroke="#e5e7eb"/>
+<text x="670.0" y="446" text-anchor="middle" font-size="11" fill="#6b7280">100 s</text>
+<text x="426.6" y="104" text-anchor="middle" font-size="10.5" fill="#dc2626">33 ms = 30 FPS</text>
+<path d="M426.6,108 V430" stroke="#dc2626" stroke-dasharray="5 3"/>
+<text x="240.0" y="140" text-anchor="end" font-size="12.5" fill="#111827">Preprocess (4K in)</text>
+<rect x="250.0" y="122" width="271.9" height="17" rx="3" fill="#9ca3af"/>
+<text x="527.9" y="135" font-size="11.5" font-weight="700" fill="#374151">765 ms</text>
+<rect x="250.0" y="142" width="129.2" height="17" rx="3" fill="#059669"/>
+<text x="385.2" y="155" font-size="11.5" font-weight="700" fill="#065f46">≈ 7 (PL, est.)   ×109 faster</text>
+<text x="240.0" y="192" text-anchor="end" font-size="12.5" fill="#111827">Dense LK flow</text>
+<rect x="250.0" y="174" width="378.7" height="17" rx="3" fill="#9ca3af"/>
+<text x="634.7" y="187" font-size="11.5" font-weight="700" fill="#374151">25.7 s</text>
+<rect x="250.0" y="194" width="133.2" height="17" rx="3" fill="#059669"/>
+<text x="389.2" y="207" font-size="11.5" font-weight="700" fill="#065f46">≈ 8 (PL, AMD bench)   ×3,211 faster</text>
+<text x="240.0" y="244" text-anchor="end" font-size="12.5" fill="#111827">YOLOv9t detection</text>
+<rect x="250.0" y="226" width="300.1" height="17" rx="3" fill="#9ca3af"/>
+<text x="556.1" y="239" font-size="11.5" font-weight="700" fill="#374151">1.9 s</text>
+<rect x="250.0" y="246" width="161.1" height="17" rx="3" fill="#059669"/>
+<text x="417.1" y="259" font-size="11.5" font-weight="700" fill="#065f46">10–30 (DPU, est.)   ×97 faster</text>
+<text x="240.0" y="296" text-anchor="end" font-size="12.5" fill="#111827">Horn sums</text>
+<rect x="250.0" y="278" width="81.0" height="17" rx="3" fill="#9ca3af"/>
+<text x="337.0" y="291" font-size="11.5" font-weight="700" fill="#374151">1.4 ms</text>
+<rect x="250.0" y="298" width="57.4" height="17" rx="3" fill="#059669"/>
+<text x="313.4" y="311" font-size="11.5" font-weight="700" fill="#065f46">0.66 (HLS engine)   ×2 faster</text>
+<text x="240.0" y="348" text-anchor="end" font-size="12.5" fill="#111827">Per-object stages</text>
+<rect x="250.0" y="330" width="215.4" height="17" rx="3" fill="#9ca3af"/>
+<text x="471.4" y="343" font-size="11.5" font-weight="700" fill="#374151">120 ms</text>
+<rect x="250.0" y="350" width="215.4" height="17" rx="3" fill="#059669"/>
+<text x="471.4" y="363" font-size="11.5" font-weight="700" fill="#065f46">same code on Arm</text>
+<text x="240.0" y="400" text-anchor="end" font-size="12.5" fill="#111827" font-weight="700">Frame time</text>
+<rect x="250.0" y="382" width="381.8" height="17" rx="3" fill="#9ca3af"/>
+<text x="637.8" y="395" font-size="11.5" font-weight="700" fill="#374151">28.5 s</text>
+<rect x="250.0" y="402" width="215.4" height="17" rx="3" fill="#059669"/>
+<text x="471.4" y="415" font-size="11.5" font-weight="700" fill="#065f46">Arm-bound (stages overlap)   ×238 faster</text>
+</svg>

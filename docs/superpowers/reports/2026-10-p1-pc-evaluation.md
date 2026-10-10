@@ -101,7 +101,7 @@ The change removed 85% of false alarms without costing a single real warning. Th
 | everything else | < 0.1 | < 0.1 |
 | **total** | **22.0 ms** | **10.3 ms** |
 
-Ego-rotation dominated: `recoverPose` triangulated every inlier to pick one of four poses. With 64 spread inliers and RANSAC capped at 200 iterations, KITTI yaw error is unchanged per drive. On the KV260's Cortex-A53 (roughly 3–6× slower per thread) this projects to about 30–60 ms per frame, i.e. about 15–30 FPS, to be measured on the board. Because Horn costs only ~0.3 ms here, the FPGA Horn engine (plan 3) would save little CPU time on this footage; its value is headroom for more objects and higher resolution.
+Ego-rotation dominated: `recoverPose` triangulated every inlier to pick one of four poses. With 64 spread inliers and RANSAC capped at 200 iterations, KITTI yaw error is unchanged per drive. Correction (2026-10-10): PassMark puts a Cortex-A53 at 1.33 GHz about 15.9× below this laptop core per thread (196 vs 3124), not 3–6×, so this projects to roughly 120–180 ms per frame on one A53 core (about 6–8 FPS); the per-object work must use all four cores (or move ego-rotation to the PL) to reach 30 FPS. To be measured on the board. The README's "FPGA design vs CPU-only" section has the full comparison. Because Horn costs only ~0.3 ms here, the FPGA Horn engine (plan 3) would save little CPU time on this footage; its value is headroom for more objects and higher resolution.
 
 ## Oncoming-traffic exclusion (2026-10-09)
 

@@ -39,10 +39,11 @@
 | Camera rotation (yaw rate) vs KITTI GPS/IMU | < 1.0 °/s RMS | **0.681 °/s** (805 frame pairs, 3 drives) | ✅ |
 | Fused TTC error, real approaches (EvTTC) | ≤ 20 % median | **11.5 %** | ✅ |
 | Approaches warned before true TTC 2.0 s (EvTTC) | ≥ 90 % | **100 %** (5 of 5) | ✅ |
-| False alarms in normal driving (30 min dash cam) | < 1 per 10 min | **0.67 per 10 min** (2 in 30 min) with the lead-vehicle and oncoming rules; the newest version, which adds predicted path entry, is being re-measured | ✅ / ⏳ |
+| False alarms in normal driving (30 min dash cam) | < 1 per 10 min | **0.67 per 10 min** (2 in 30 min) with the lead-vehicle and oncoming rules. The newest version (adds predicted path entry) was re-checked on 3 of the 10 clips: 1 warning, the same one the earlier version raised | ✅ / partial |
 | Crossing pedestrian / car cutting in (synthetic road) | warn by TTC 1.5 s | **warns at ≈ 2.3 s** (was 0.80 s / 0.86 s) | ✅ |
-| Perception cost, C++ on a laptop CPU | — | **11.2 ms per frame** | |
-| Same, projected on the KV260 Cortex-A53 | 30 FPS | ≈ 35–45 ms → ≈ 15–30 FPS | ⏳ board run pending |
+| Perception cost, C++ on a laptop CPU | — | **7.5–11.2 ms per frame** | |
+| Same work on one KV260 Cortex-A53 core (×15.9, PassMark) | 33 ms for 30 FPS | ≈ 120–180 ms → ≈ 6–8 FPS until spread over the 4 cores or moved to the PL | ⏳ board run pending |
+| **Whole system: FPGA design vs CPU-only, on the KV260** | — | **≈ 0.12–0.18 s vs 28.5 s per frame: ≈ 160–240× faster, ≈ 120–180× less energy per frame** (estimated, see [FPGA design vs CPU-only](#fpga-design-vs-cpu-only)) | |
 | Horn engine, HLS C-simulation vs software | bit-exact | **5 / 5 cases bit-exact** | ✅ |
 | Python ↔ C++ parity | identical decisions | **38 / 38 GoogleTest parity tests** | ✅ |
 
@@ -190,7 +191,7 @@ Getting TTC right was not the hard part. Real streets are full of objects with g
 | exclude **oncoming** traffic (κ > 1.8) | oncoming cars straight ahead on narrow streets | 0.67 |
 | allow **predicted entry** (6 frames, ≥ 0.3 m/s, ≤ 4 m) | crossing pedestrians and cut-ins warned only 0.4–0.9 s before impact | 4.66 at first |
 | entry needs a **known κ** | oncoming car drifting inwards while we were stopped (no road flow, κ unknown) | 1.33 |
-| entry speed from the **outer edge / height**, against a **fixed reference** with **rotation removed** | a lorry's side panel, and the heading jumping while it hid the background, faking a cut-in as we overtook it | ⏳ being measured |
+| entry speed from the **outer edge / height**, against a **fixed reference** with **rotation removed** | a lorry's side panel, and the heading jumping while it hid the background, faking a cut-in as we overtook it | partial re-check: 3 of 10 clips, no new warnings |
 
 The warning timing on real approaches stayed at 5 of 5 warned in time through every step.
 
@@ -271,7 +272,7 @@ With stale estimates no longer reporting a TTC (a later fix), the overall fused 
 | + lead-vehicle rule | 51 | 17.0 | 7.2 |
 | + oncoming exclusion | 2 | 0.67 | 7.2 (1 raise) |
 | + predicted path entry, κ required (previous iteration) | 4 | 1.33 | — |
-| + edge-based entry speed, fixed reference, rotation removed (current) | ⏳ | ⏳ being measured | ⏳ |
+| + edge-based entry speed, fixed reference, rotation removed (current) | 1 in the first 3 clips (the in-path one above, not a predicted entry) | not re-measured in full | — |
 
 The KITTI figure is a control with a calibrated camera; its 1.4 minutes make the per-10-minute rate coarse (one raise ≈ 7 per 10 min). The remaining KITTI raise is a parked car on a bend, where the smoothed heading lags the turn.
 
@@ -295,7 +296,38 @@ The KITTI figure is a control with a calibrated camera; its 1.4 minutes make the
 | tracking, fusion, course check | 0.06 |
 | **total** | **11.2** |
 
-Before the ego-rotation speed-up the total was 22.0 ms. Detection and flow are not included (on the board they run on the DPU and the fabric, in parallel with this). The KV260's Cortex-A53 is roughly 3–4× slower per thread than this laptop core, which projects to about 35–45 ms per frame, i.e. 15–30 FPS with ego-rotation as the main cost; this has to be measured on the board.
+Before the ego-rotation speed-up the total was 22.0 ms. Detection and flow are not included: on the board they run on the DPU and the fabric, in parallel with this.
+
+**On the board's Arm cores this is the bottleneck.** PassMark rates this laptop core at 3124 single-thread and a Cortex-A53 at 1.33 GHz at 196, i.e. about 15.9× slower, so the same per-object work projects to roughly 120–180 ms on one A53 core (≈ 6–8 FPS). Reaching 30 FPS needs it spread over the four cores (each track's TTC is independent) and, if that is not enough, ego-rotation (two thirds of it) moved to the PL. The board run (plan 2, Task 10) will measure it.
+
+### FPGA design vs CPU-only
+
+What does the FPGA actually buy? The same system was run as **plain native C++ on one CPU core, with no FPGA logic and no DPU** (`host/tools/cpu_baseline.cpp`, `eval/bench_cpu_yolo.py`): a straightforward dense pyramidal LK with the Vitis kernel's parameters (5 levels, 5 iterations, 11×11 window; 0.035 px median error on a known sub-pixel shift), YOLOv9t on the CPU, and the same per-object code. 30 frames of the 4K dash cam, 512×384 processing.
+
+<p align="center"><img src="docs/images/fpga-vs-cpu.svg" alt="Per-stage latency: CPU-only on one A53 core vs the FPGA design" width="100%"/></p>
+
+| Stage, ms per frame | CPU-only, laptop core (**measured**) | CPU-only, one A53 core (×15.9) | FPGA design on the KV260 | Speed-up | Source of the FPGA figure |
+|---|---|---|---|---|---|
+| Preprocess: 4K → 512×384, gray, RGB tensor | 48.0 | ≈ 765 | ≈ 7 (Vitis Vision resize, 4 px/clock at 300 MHz) | ≈ 110× | estimate |
+| Dense pyramidal LK flow | 1,612 (plain C++) · 1,501 (OpenCV, SIMD) | ≈ 25,700 | ≈ 8 | ≈ 3,200× | AMD's benchmark: 12 FPS at 1080p on the FPGA vs 0.63 FPS on a CPU, scaled to 10.5× fewer pixels |
+| YOLOv9t detection | 121 (PyTorch CPU, 1 thread; 8 threads no faster) | ≈ 1,935 | ≈ 10–30 (DPU B4096) | ≈ 65–190× | estimate from compute; a published YOLOX-nano run took 15.4 ms on the B4096 DPU |
+| Horn sums | 0.09 (few objects in this clip) | ≈ 1.4 | 0.66 (whole frame, 16 boxes, one pass) | ≈ 2× | II = 1 at the 300 MHz target |
+| Per-object stages (ego-rotation 4.9, TTC methods 2.3, lead 0.3) | 7.5 | ≈ 120 | ≈ 120 (same code on the Arm cores) | 1× | same code |
+| **Frame time** | **1,789 (0.56 FPS)** | **≈ 28,500 (0.035 FPS)** | **≈ 120** (stages overlap; Arm-bound) | **≈ 240×** | |
+
+Even on a fast laptop core, the CPU-only system manages about half a frame per second; dense flow alone is 90 % of it, which is exactly the stage the fabric does best (AMD's own figure for this kernel is 19× faster than a desktop CPU at 1080p). Spreading the CPU-only version perfectly over all four A53 cores would still take about 7 s per frame.
+
+**Power and energy (estimates; the board run will measure them with `xmutil platformstats`).** The KV260 draws 7.5–15 W in published measurements.
+
+| | Time per frame | Board power | Energy per frame |
+|---|---|---|---|
+| CPU-only, one A53 core | ≈ 28.5 s | ≈ 7.5 W (Arm cores only, low end) | ≈ 210 J |
+| FPGA design, per-object work on one core | ≈ 0.12–0.18 s | ≈ 10–15 W | ≈ 1.2–2.7 J (**≈ 80–180× less**) |
+| FPGA design, per-object work over 4 cores (goal: 30 FPS) | ≈ 33 ms | ≈ 15 W | ≈ 0.5 J (**≈ 400× less**) |
+
+The FPGA design draws *more* power while running, since the fabric and DPU are busy, but it finishes each frame two orders of magnitude sooner, so the energy per frame is far lower. That is the point that matters for a car: real-time at 10–15 W, against a CPU-only design that would be thousands of times too slow at any power.
+
+Sources: [AMD Vitis Vision benchmark](https://xilinx.github.io/Vitis_Libraries/vision/2022.1/Benchmark.html) · [PassMark: Cortex-A53 1.33 GHz](https://www.cpubenchmark.net/compare/5443vs5206/ARM-Cortex-A53-4-1333-MHz-vs-Intel-N95) · [PassMark: Ryzen 7 7435HS](https://www.cpubenchmark.net/compare/6067vs5855/AMD-Ryzen-7-7435HS-vs-AMD-Ryzen-7-Pro-7735U) · [KV260 power](https://www.hackster.io/whitney-knitter/benchmarking-the-kria-kv260-ai-vision-starter-kit-464972) · [YOLOX-nano on the B4096 DPU](https://hackster.io/iotengineer22/benchmark-architectures-of-the-dpu-with-kr260-699f19)
 
 Full details, including what was tried and did not work: [docs/superpowers/reports/2026-10-p1-pc-evaluation.md](docs/superpowers/reports/2026-10-p1-pc-evaluation.md).
 
@@ -336,6 +368,7 @@ Optic-Flow-Estimation/
 │   ├── include/fcw/*.hpp       one header per Python module, plus runtime.hpp
 │   ├── src/*.cpp               ports with golden parity
 │   ├── src/runtime/            four-thread runtime and fcw_app
+│   ├── tools/cpu_baseline.cpp  CPU-only baseline (plain C++ dense LK, no FPGA) for the comparison
 │   ├── tests/                  GoogleTest parity tests
 │   │   ├── golden/             small golden vectors (committed)
 │   │   └── golden_local/       pipeline replays, ~230 MB (regenerated, git-ignored)
@@ -354,6 +387,7 @@ Optic-Flow-Estimation/
 │   ├── evttc_fcw.py            TTC error and warning timing on EvTTC
 │   ├── false_alarms.py         false alarms per 10 min on normal driving
 │   ├── review_warnings.py      annotated frame + numbers for every warning
+│   ├── bench_cpu_yolo.py       YOLOv9t on the CPU (no DPU), for the comparison
 │   └── kappa_probe.py          closing-ratio probe on chosen frames
 ├── tools/export_golden.py      golden vectors for C++ and HLS; records detections for fcw_app
 ├── tests/fcw/                  pytest suite for the FCW system
@@ -418,6 +452,14 @@ Run the threaded app on a video. On a PC it takes detections recorded by the Pyt
 python tools/export_golden.py --record-detections clip.mp4 --record-out clip_dets.yml.gz
 ./build/fcw_app --source clip.mp4 --detections clip_dets.yml.gz --fx 200 --no-display --max-frames 300
 # prints mean ms per frame, per step
+```
+
+CPU-only baseline for the FPGA comparison (one core, no accelerators):
+
+```bash
+./build/fcw_cpu_baseline --selftest                       # LK accuracy on a known shift
+./build/fcw_cpu_baseline --source clip.mp4 --detections clip_dets.yml.gz --fx 200 --frames 30
+python eval/bench_cpu_yolo.py --source clip.mp4 --frames 30
 ```
 
 ### HLS engine C-simulation
