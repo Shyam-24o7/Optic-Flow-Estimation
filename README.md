@@ -13,20 +13,21 @@
 ## Contents
 
 1. [Results at a glance](#results-at-a-glance)
-2. [The problem, and why it is hard with one camera](#the-problem-and-why-it-is-hard-with-one-camera)
-3. [System architecture on the KV260](#system-architecture-on-the-kv260)
-4. [Per-frame dataflow](#per-frame-dataflow)
-5. [How each stage works](#how-each-stage-works)
-6. [Who is allowed to warn: lead selection](#who-is-allowed-to-warn-lead-selection)
-7. [Four-thread runtime](#four-thread-runtime)
-8. [The custom HLS engine](#the-custom-hls-engine)
-9. [How correctness is verified](#how-correctness-is-verified)
-10. [Results in detail](#results-in-detail)
-11. [Repository structure](#repository-structure)
-12. [Getting started](#getting-started)
-13. [Status and roadmap](#status-and-roadmap)
-14. [Earlier pipeline (2025)](#earlier-pipeline-2025)
-15. [Contributors and acknowledgments](#contributors-and-acknowledgments)
+2. [CPU vs GPU vs FPGA: all the numbers](#cpu-vs-gpu-vs-fpga-all-the-numbers)
+3. [The problem, and why it is hard with one camera](#the-problem-and-why-it-is-hard-with-one-camera)
+4. [System architecture on the KV260](#system-architecture-on-the-kv260)
+5. [Per-frame dataflow](#per-frame-dataflow)
+6. [How each stage works](#how-each-stage-works)
+7. [Who is allowed to warn: lead selection](#who-is-allowed-to-warn-lead-selection)
+8. [Four-thread runtime](#four-thread-runtime)
+9. [The custom HLS engine](#the-custom-hls-engine)
+10. [How correctness is verified](#how-correctness-is-verified)
+11. [Results in detail](#results-in-detail)
+12. [Repository structure](#repository-structure)
+13. [Getting started](#getting-started)
+14. [Status and roadmap](#status-and-roadmap)
+15. [Earlier pipeline (2025)](#earlier-pipeline-2025)
+16. [Contributors and acknowledgments](#contributors-and-acknowledgments)
 
 ---
 
@@ -44,11 +45,56 @@
 | Perception cost, C++ on a laptop CPU | — | **7.5–11.2 ms per frame** | |
 | Same work on one KV260 Cortex-A53 core (×15.9, PassMark) | 33 ms for 30 FPS | ≈ 120–180 ms → ≈ 6–8 FPS until spread over the 4 cores or moved to the PL | ⏳ board run pending |
 | **Whole system: FPGA design vs CPU-only (A53)** | — | **≈ 0.12–0.18 s vs 28.5 s per frame: ≈ 160–240× faster, ≈ 80–180× less energy per frame** (estimated, see [FPGA design vs CPU-only vs GPU](#fpga-design-vs-cpu-only-vs-gpu)) | |
-| **Whole system: FPGA design vs native GPU (RTX 4060 Laptop, measured)** | — | **≈ 0.12 s vs 0.245 s per frame (≈ 2×; ≈ 7× with 4 Arm cores), 10–15 W vs 47.7 W, ≈ 4–23× less energy per frame** | |
+| **Whole system: FPGA design vs native GPU (RTX 4060 Laptop, measured)** | — | **≈ 0.12–0.18 s vs 0.245 s per frame (≈ 1.4–2×; ≈ 7× with 4 Arm cores), 10–15 W vs 47.7 W, ≈ 4–23× less energy per frame** | |
 | Horn engine, HLS C-simulation vs software | bit-exact | **5 / 5 cases bit-exact** | ✅ |
 | Python ↔ C++ parity | identical decisions | **38 / 38 GoogleTest parity tests** | ✅ |
 
 Everything above is measured on a PC. **The KV260 board run has not happened yet** (see [Status](#status-and-roadmap)).
+
+---
+
+## CPU vs GPU vs FPGA: all the numbers
+
+The same system built three ways: **CPU-only** (plain native C++, no accelerators), **native GPU** (the same stages on CUDA through PyTorch, without vendor tuning) and the **FPGA design** (Vitis Vision LK and our Horn engine in the fabric, YOLOv9t on the DPU, per-object work on the Arm cores). How each was measured: [FPGA design vs CPU-only vs GPU](#fpga-design-vs-cpu-only-vs-gpu).
+
+Labels: **measured** on this project's laptop (Ryzen 7 7435HS, RTX 4060 Laptop) · **scaled**: a laptop single-core measurement × 15.9 (PassMark single-thread, Ryzen 7 7435HS 3124 vs Cortex-A53 1.33 GHz 196) · **estimate**: published figures or calculation for the KV260, which has not been run yet.
+
+### Whole system, per frame
+
+| | CPU-only, KV260 A53 core (scaled) | CPU-only, laptop core (measured) | Native GPU, RTX 4060 Laptop (measured) | **FPGA design, KV260** per-object work on 1 core (estimate) | **FPGA design, KV260** per-object work on 4 cores (goal, estimate) |
+|---|---|---|---|---|---|
+| Time per frame | ≈ 28.5 s | 1.79 s | 245 ms | **120–180 ms** | **≈ 33 ms** |
+| Frames per second | 0.035 | 0.56 | 4.1 | **5.6–8.3** | **≈ 30** |
+| Power | ≈ 7.5 W (board) | not measured | 47.7 W (GPU board only; 15 W idle) | **10–15 W (whole board)** | **≈ 15 W** |
+| Energy per frame | ≈ 214 J | not measured | 11.7 J (GPU only) | **1.2–2.7 J** | **≈ 0.5 J** |
+
+### Relative to the FPGA design
+
+| FPGA design compared with … | Speed-up (1 core / 4 cores) | Energy saving per frame (1 core / 4 cores) | Power |
+|---|---|---|---|
+| CPU-only on the same KV260 (A53) | **158–238× / ≈ 860×** | **79–178× / ≈ 430×** | FPGA draws 1.3–2× more, but finishes 160–860× sooner |
+| CPU-only on a laptop core | 10–15× / ≈ 54× | not measured | — |
+| Native GPU, RTX 4060 Laptop | **1.4–2.0× / ≈ 7.4×** | **4.3–9.8× / ≈ 23×** (vs the GPU alone) | **3.2–4.8× less** (whole KV260 board vs the GPU board alone) |
+
+### Per stage, ms per frame (speed-up of the FPGA design in brackets)
+
+| Stage | CPU-only, A53 (scaled) | CPU-only, laptop core (measured) | Native GPU (measured) | FPGA design (estimate) | FPGA vs A53 | FPGA vs laptop CPU | FPGA vs GPU |
+|---|---|---|---|---|---|---|---|
+| Preprocess (4K → 512×384, gray, RGB tensor) | 765 | 48.0 | 9.2 | ≈ 7 | ≈ 109× | ≈ 6.9× | ≈ 1.3× |
+| Dense pyramidal LK flow | 25,688 | 1,612 (plain) · 1,501 (OpenCV) | 154 | ≈ 8 | **≈ 3,211×** | ≈ 201× | **≈ 19×** |
+| YOLOv9t detection | 1,935 | 121 | 82 | ≈ 10–30 | ≈ 65–194× | ≈ 4–12× | ≈ 2.7–8.2× |
+| Horn sums | 1.4 | 0.09 | 0.09 (CPU) | 0.66 | ≈ 2.2× | 0.14× (CPU faster for few boxes) | 0.14× |
+| Per-object stages | 120 | 7.5 | 7.5 (laptop CPU) | 120 (1 A53 core) · ≈ 33 (4 cores) | 1× · ≈ 3.6× | 0.06× · 0.23× | 0.06× · 0.23× |
+| **Frame** (stages overlap on the FPGA and GPU) | **28,509** | **1,789** | **245** | **120–180 · ≈ 33** | **158–238× · ≈ 860×** | **10–15× · ≈ 54×** | **1.4–2.0× · ≈ 7.4×** |
+
+**What the numbers say**
+
+- **Dense optical flow is the reason for the FPGA.** It is 90 % of the CPU-only frame and 63 % of the GPU frame; in the fabric it streams at one pixel per clock: ≈ 3,200× faster than an A53 core and ≈ 19× faster than the GPU version.
+- **The DPU makes the detector real-time** on a 10–15 W board: 65–194× faster than an A53 core.
+- **The Arm cores are now the bottleneck.** Per-object work is 120–180 ms on one A53 core. Spread over the four cores (each track is independent) it reaches ≈ 33 ms and 30 FPS; that is the next optimisation.
+- **Small stages do not need hardware.** For a few boxes, Horn sums are faster in software; the engine pays off with many objects or higher resolution, and frees the Arm cores.
+- **Energy:** the FPGA design uses more power than the A53 alone and less than a third of the GPU's, and per frame it needs **80–430× less energy than CPU-only** and **4–23× less than the GPU**.
+- **Caveat:** a vendor-tuned GPU stack (TensorRT, a hand-written CUDA LK kernel) would beat the KV260 on raw speed, at 50–100+ W for the GPU and its host against 10–15 W for the whole KV260 board.
 
 ---
 
@@ -319,7 +365,7 @@ Both LK implementations reach 0.035 px median error on a known sub-pixel shift, 
 | YOLOv9t detection | 121 (PyTorch, 1 thread; 8 no faster) | ≈ 1,935 | 82 (PyTorch eager) | ≈ 10–30 (DPU B4096) | estimate from compute; a published YOLOX-nano run took 15.4 ms on the B4096 DPU |
 | Horn sums | 0.09 (few objects here) | ≈ 1.4 | 0.09 (on the CPU) | 0.66 (whole frame, 16 boxes) | II = 1 at the 300 MHz target |
 | Per-object stages | 7.5 | ≈ 120 | 7.5 (laptop CPU) | ≈ 120 (Arm, one core) | same code |
-| **Frame time** | **1,789 (0.56 FPS)** | **≈ 28,500 (0.035 FPS)** | **245 (4.1 FPS)** | **≈ 120 (≈ 8 FPS)**; ≈ 33 with 4 cores | stages overlap; Arm-bound |
+| **Frame time** | **1,789 (0.56 FPS)** | **≈ 28,500 (0.035 FPS)** | **245 (4.1 FPS)** | **≈ 120–180 (5.6–8.3 FPS)**; ≈ 33 with 4 cores | stages overlap; Arm-bound |
 
 **Speed-up of the FPGA design**
 
@@ -328,7 +374,7 @@ Both LK implementations reach 0.035 px median error on a known sub-pixel shift, 
 | Dense LK flow | ≈ 3,200× | ≈ 19× |
 | YOLOv9t | ≈ 65–190× | ≈ 3–8× |
 | Preprocess | ≈ 110× | ≈ 1.3× |
-| Whole frame, per-object work on one Arm core | **≈ 240×** | **≈ 2×** |
+| Whole frame, per-object work on one Arm core | **≈ 158–238×** | **≈ 1.4–2.0×** |
 | Whole frame, per-object work over 4 Arm cores (goal) | ≈ 860× | ≈ 7× |
 
 Dense flow is 90 % of the CPU-only time and 63 % of the GPU time, and it is exactly what the fabric does best: one streaming pass, one pixel per clock, no memory round trips. The GPU's weak spot is the opposite of the FPGA's: 121 window samples per pixel and iteration through memory (154 ms), and hundreds of small kernel launches for a tiny network (82 ms for YOLOv9t). Spreading the CPU-only version perfectly over all four A53 cores would still take about 7 s per frame.
@@ -342,7 +388,7 @@ Dense flow is 90 % of the CPU-only time and 63 % of the GPU time, and it is exac
 | FPGA design, per-object work on one core | ≈ 0.12–0.18 s | ≈ 10–15 W (whole board) | ≈ 1.2–2.7 J: **≈ 4–10× less than the GPU**, ≈ 80–180× less than CPU-only |
 | FPGA design, per-object work over 4 cores (goal: 30 FPS) | ≈ 33 ms | ≈ 15 W (whole board) | ≈ 0.5 J: **≈ 23× less than the GPU**, ≈ 400× less than CPU-only |
 
-**Reading this honestly.** Against plain implementations on each platform, the FPGA design is about 2× faster than the GPU per frame today and about 7× once the per-object work uses all four Arm cores, at a third to a fifth of the GPU's power and 4–23× less energy per frame. A *vendor-tuned* GPU stack (TensorRT for the detector, a hand-written CUDA LK kernel) would be much faster than these GPU numbers and would beat the KV260 on raw speed, but at 50–100+ W for a laptop GPU plus its host, against 10–15 W for the whole KV260 board. For a camera module in a car, the power envelope and the fixed, predictable latency of a streaming pipeline are what count.
+**Reading this honestly.** Against plain implementations on each platform, the FPGA design is about 1.4–2× faster than the GPU per frame today and about 7× once the per-object work uses all four Arm cores, at a third to a fifth of the GPU's power and 4–23× less energy per frame. A *vendor-tuned* GPU stack (TensorRT for the detector, a hand-written CUDA LK kernel) would be much faster than these GPU numbers and would beat the KV260 on raw speed, but at 50–100+ W for a laptop GPU plus its host, against 10–15 W for the whole KV260 board. For a camera module in a car, the power envelope and the fixed, predictable latency of a streaming pipeline are what count.
 
 Sources: [AMD Vitis Vision benchmark](https://xilinx.github.io/Vitis_Libraries/vision/2022.1/Benchmark.html) · [PassMark: Cortex-A53 1.33 GHz](https://www.cpubenchmark.net/compare/5443vs5206/ARM-Cortex-A53-4-1333-MHz-vs-Intel-N95) · [PassMark: Ryzen 7 7435HS](https://www.cpubenchmark.net/compare/6067vs5855/AMD-Ryzen-7-7435HS-vs-AMD-Ryzen-7-Pro-7735U) · [KV260 power](https://www.hackster.io/whitney-knitter/benchmarking-the-kria-kv260-ai-vision-starter-kit-464972) · [YOLOX-nano on the B4096 DPU](https://hackster.io/iotengineer22/benchmark-architectures-of-the-dpu-with-kr260-699f19)
 
