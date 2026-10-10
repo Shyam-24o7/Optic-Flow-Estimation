@@ -43,7 +43,8 @@
 | Crossing pedestrian / car cutting in (synthetic road) | warn by TTC 1.5 s | **warns at ≈ 2.3 s** (was 0.80 s / 0.86 s) | ✅ |
 | Perception cost, C++ on a laptop CPU | — | **7.5–11.2 ms per frame** | |
 | Same work on one KV260 Cortex-A53 core (×15.9, PassMark) | 33 ms for 30 FPS | ≈ 120–180 ms → ≈ 6–8 FPS until spread over the 4 cores or moved to the PL | ⏳ board run pending |
-| **Whole system: FPGA design vs CPU-only, on the KV260** | — | **≈ 0.12–0.18 s vs 28.5 s per frame: ≈ 160–240× faster, ≈ 120–180× less energy per frame** (estimated, see [FPGA design vs CPU-only](#fpga-design-vs-cpu-only)) | |
+| **Whole system: FPGA design vs CPU-only (A53)** | — | **≈ 0.12–0.18 s vs 28.5 s per frame: ≈ 160–240× faster, ≈ 80–180× less energy per frame** (estimated, see [FPGA design vs CPU-only vs GPU](#fpga-design-vs-cpu-only-vs-gpu)) | |
+| **Whole system: FPGA design vs native GPU (RTX 4060 Laptop, measured)** | — | **≈ 0.12 s vs 0.245 s per frame (≈ 2×; ≈ 7× with 4 Arm cores), 10–15 W vs 47.7 W, ≈ 4–23× less energy per frame** | |
 | Horn engine, HLS C-simulation vs software | bit-exact | **5 / 5 cases bit-exact** | ✅ |
 | Python ↔ C++ parity | identical decisions | **38 / 38 GoogleTest parity tests** | ✅ |
 
@@ -300,32 +301,48 @@ Before the ego-rotation speed-up the total was 22.0 ms. Detection and flow are n
 
 **On the board's Arm cores this is the bottleneck.** PassMark rates this laptop core at 3124 single-thread and a Cortex-A53 at 1.33 GHz at 196, i.e. about 15.9× slower, so the same per-object work projects to roughly 120–180 ms on one A53 core (≈ 6–8 FPS). Reaching 30 FPS needs it spread over the four cores (each track's TTC is independent) and, if that is not enough, ego-rotation (two thirds of it) moved to the PL. The board run (plan 2, Task 10) will measure it.
 
-### FPGA design vs CPU-only
+### FPGA design vs CPU-only vs GPU
 
-What does the FPGA actually buy? The same system was run as **plain native C++ on one CPU core, with no FPGA logic and no DPU** (`host/tools/cpu_baseline.cpp`, `eval/bench_cpu_yolo.py`): a straightforward dense pyramidal LK with the Vitis kernel's parameters (5 levels, 5 iterations, 11×11 window; 0.035 px median error on a known sub-pixel shift), YOLOv9t on the CPU, and the same per-object code. 30 frames of the 4K dash cam, 512×384 processing.
+What does the FPGA actually buy? The same system was built two more ways and timed on the same 30 frames of the 4K dash cam (512×384 processing):
 
-<p align="center"><img src="docs/images/fpga-vs-cpu.svg" alt="Per-stage latency: CPU-only on one A53 core vs the FPGA design" width="100%"/></p>
+- **CPU-only**: plain native C++ on one core, no FPGA logic and no DPU (`host/tools/cpu_baseline.cpp`, `eval/bench_cpu_yolo.py`). A straightforward dense pyramidal LK with the Vitis kernel's parameters (5 levels, 5 iterations, 11×11 window), YOLOv9t on the CPU, the same per-object code. Measured on a laptop core and scaled to a KV260 Cortex-A53 by PassMark (×15.9).
+- **Native GPU**: the same stages written for the GPU without vendor tuning (`eval/bench_gpu.py`): exact per-window dense LK in PyTorch (all 121 window offsets batched per iteration), YOLOv9t in PyTorch eager mode, preprocessing on the GPU including the 4K upload. The per-object stages stay on the CPU, as they would in any GPU design. Measured on an RTX 4060 Laptop GPU, with board power from `nvidia-smi`.
 
-| Stage, ms per frame | CPU-only, laptop core (**measured**) | CPU-only, one A53 core (×15.9) | FPGA design on the KV260 | Speed-up | Source of the FPGA figure |
+Both LK implementations reach 0.035 px median error on a known sub-pixel shift, so all three do the same work.
+
+<p align="center"><img src="docs/images/fpga-vs-cpu.svg" alt="Per-stage latency: CPU-only on one A53 core, native GPU on an RTX 4060 Laptop, and the FPGA design" width="100%"/></p>
+
+| Stage, ms per frame | CPU-only, laptop core (**measured**) | CPU-only, one A53 core (×15.9) | Native GPU, RTX 4060 Laptop (**measured**) | FPGA design on the KV260 | Source of the FPGA figure |
 |---|---|---|---|---|---|
-| Preprocess: 4K → 512×384, gray, RGB tensor | 48.0 | ≈ 765 | ≈ 7 (Vitis Vision resize, 4 px/clock at 300 MHz) | ≈ 110× | estimate |
-| Dense pyramidal LK flow | 1,612 (plain C++) · 1,501 (OpenCV, SIMD) | ≈ 25,700 | ≈ 8 | ≈ 3,200× | AMD's benchmark: 12 FPS at 1080p on the FPGA vs 0.63 FPS on a CPU, scaled to 10.5× fewer pixels |
-| YOLOv9t detection | 121 (PyTorch CPU, 1 thread; 8 threads no faster) | ≈ 1,935 | ≈ 10–30 (DPU B4096) | ≈ 65–190× | estimate from compute; a published YOLOX-nano run took 15.4 ms on the B4096 DPU |
-| Horn sums | 0.09 (few objects in this clip) | ≈ 1.4 | 0.66 (whole frame, 16 boxes, one pass) | ≈ 2× | II = 1 at the 300 MHz target |
-| Per-object stages (ego-rotation 4.9, TTC methods 2.3, lead 0.3) | 7.5 | ≈ 120 | ≈ 120 (same code on the Arm cores) | 1× | same code |
-| **Frame time** | **1,789 (0.56 FPS)** | **≈ 28,500 (0.035 FPS)** | **≈ 120** (stages overlap; Arm-bound) | **≈ 240×** | |
+| Preprocess: 4K → 512×384, gray, RGB tensor | 48.0 | ≈ 765 | 9.2 (incl. 4K upload) | ≈ 7 | estimate: Vitis Vision resize, 4 px/clock at 300 MHz |
+| Dense pyramidal LK flow | 1,612 (plain C++) · 1,501 (OpenCV, SIMD) | ≈ 25,700 | 154 | ≈ 8 | AMD's benchmark: 12 FPS at 1080p on the FPGA vs 0.63 FPS on a CPU, scaled to 10.5× fewer pixels |
+| YOLOv9t detection | 121 (PyTorch, 1 thread; 8 no faster) | ≈ 1,935 | 82 (PyTorch eager) | ≈ 10–30 (DPU B4096) | estimate from compute; a published YOLOX-nano run took 15.4 ms on the B4096 DPU |
+| Horn sums | 0.09 (few objects here) | ≈ 1.4 | 0.09 (on the CPU) | 0.66 (whole frame, 16 boxes) | II = 1 at the 300 MHz target |
+| Per-object stages | 7.5 | ≈ 120 | 7.5 (laptop CPU) | ≈ 120 (Arm, one core) | same code |
+| **Frame time** | **1,789 (0.56 FPS)** | **≈ 28,500 (0.035 FPS)** | **245 (4.1 FPS)** | **≈ 120 (≈ 8 FPS)**; ≈ 33 with 4 cores | stages overlap; Arm-bound |
 
-Even on a fast laptop core, the CPU-only system manages about half a frame per second; dense flow alone is 90 % of it, which is exactly the stage the fabric does best (AMD's own figure for this kernel is 19× faster than a desktop CPU at 1080p). Spreading the CPU-only version perfectly over all four A53 cores would still take about 7 s per frame.
+**Speed-up of the FPGA design**
 
-**Power and energy (estimates; the board run will measure them with `xmutil platformstats`).** The KV260 draws 7.5–15 W in published measurements.
+| Stage | vs CPU-only (A53) | vs native GPU |
+|---|---|---|
+| Dense LK flow | ≈ 3,200× | ≈ 19× |
+| YOLOv9t | ≈ 65–190× | ≈ 3–8× |
+| Preprocess | ≈ 110× | ≈ 1.3× |
+| Whole frame, per-object work on one Arm core | **≈ 240×** | **≈ 2×** |
+| Whole frame, per-object work over 4 Arm cores (goal) | ≈ 860× | ≈ 7× |
 
-| | Time per frame | Board power | Energy per frame |
+Dense flow is 90 % of the CPU-only time and 63 % of the GPU time, and it is exactly what the fabric does best: one streaming pass, one pixel per clock, no memory round trips. The GPU's weak spot is the opposite of the FPGA's: 121 window samples per pixel and iteration through memory (154 ms), and hundreds of small kernel launches for a tiny network (82 ms for YOLOv9t). Spreading the CPU-only version perfectly over all four A53 cores would still take about 7 s per frame.
+
+**Power and energy.** GPU power is measured (`nvidia-smi`, GPU board only: 15 W idle, 47.7 W running this workload; the laptop CPU comes on top). KV260 figures are estimates from published measurements (7.5–15 W); the board run will measure them with `xmutil platformstats`.
+
+| | Time per frame | Power | Energy per frame |
 |---|---|---|---|
-| CPU-only, one A53 core | ≈ 28.5 s | ≈ 7.5 W (Arm cores only, low end) | ≈ 210 J |
-| FPGA design, per-object work on one core | ≈ 0.12–0.18 s | ≈ 10–15 W | ≈ 1.2–2.7 J (**≈ 80–180× less**) |
-| FPGA design, per-object work over 4 cores (goal: 30 FPS) | ≈ 33 ms | ≈ 15 W | ≈ 0.5 J (**≈ 400× less**) |
+| CPU-only, one A53 core | ≈ 28.5 s | ≈ 7.5 W (board, Arm only) | ≈ 210 J |
+| Native GPU, RTX 4060 Laptop (**measured**) | 245 ms | 47.7 W (GPU board alone) | **11.7 J** (GPU alone) |
+| FPGA design, per-object work on one core | ≈ 0.12–0.18 s | ≈ 10–15 W (whole board) | ≈ 1.2–2.7 J: **≈ 4–10× less than the GPU**, ≈ 80–180× less than CPU-only |
+| FPGA design, per-object work over 4 cores (goal: 30 FPS) | ≈ 33 ms | ≈ 15 W (whole board) | ≈ 0.5 J: **≈ 23× less than the GPU**, ≈ 400× less than CPU-only |
 
-The FPGA design draws *more* power while running, since the fabric and DPU are busy, but it finishes each frame two orders of magnitude sooner, so the energy per frame is far lower. That is the point that matters for a car: real-time at 10–15 W, against a CPU-only design that would be thousands of times too slow at any power.
+**Reading this honestly.** Against plain implementations on each platform, the FPGA design is about 2× faster than the GPU per frame today and about 7× once the per-object work uses all four Arm cores, at a third to a fifth of the GPU's power and 4–23× less energy per frame. A *vendor-tuned* GPU stack (TensorRT for the detector, a hand-written CUDA LK kernel) would be much faster than these GPU numbers and would beat the KV260 on raw speed, but at 50–100+ W for a laptop GPU plus its host, against 10–15 W for the whole KV260 board. For a camera module in a car, the power envelope and the fixed, predictable latency of a streaming pipeline are what count.
 
 Sources: [AMD Vitis Vision benchmark](https://xilinx.github.io/Vitis_Libraries/vision/2022.1/Benchmark.html) · [PassMark: Cortex-A53 1.33 GHz](https://www.cpubenchmark.net/compare/5443vs5206/ARM-Cortex-A53-4-1333-MHz-vs-Intel-N95) · [PassMark: Ryzen 7 7435HS](https://www.cpubenchmark.net/compare/6067vs5855/AMD-Ryzen-7-7435HS-vs-AMD-Ryzen-7-Pro-7735U) · [KV260 power](https://www.hackster.io/whitney-knitter/benchmarking-the-kria-kv260-ai-vision-starter-kit-464972) · [YOLOX-nano on the B4096 DPU](https://hackster.io/iotengineer22/benchmark-architectures-of-the-dpu-with-kr260-699f19)
 
@@ -388,6 +405,7 @@ Optic-Flow-Estimation/
 │   ├── false_alarms.py         false alarms per 10 min on normal driving
 │   ├── review_warnings.py      annotated frame + numbers for every warning
 │   ├── bench_cpu_yolo.py       YOLOv9t on the CPU (no DPU), for the comparison
+│   ├── bench_gpu.py            native GPU version of the accelerated stages, with GPU power
 │   └── kappa_probe.py          closing-ratio probe on chosen frames
 ├── tools/export_golden.py      golden vectors for C++ and HLS; records detections for fcw_app
 ├── tests/fcw/                  pytest suite for the FCW system
@@ -460,6 +478,7 @@ CPU-only baseline for the FPGA comparison (one core, no accelerators):
 ./build/fcw_cpu_baseline --selftest                       # LK accuracy on a known shift
 ./build/fcw_cpu_baseline --source clip.mp4 --detections clip_dets.yml.gz --fx 200 --frames 30
 python eval/bench_cpu_yolo.py --source clip.mp4 --frames 30
+python eval/bench_gpu.py --selftest && python eval/bench_gpu.py --source clip.mp4   # GPU version + power
 ```
 
 ### HLS engine C-simulation
